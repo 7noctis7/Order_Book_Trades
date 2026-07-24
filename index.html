@@ -1,0 +1,1362 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LOB Terminal — carnet L2 Binance &amp; paper trading</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ============ tokens ============ */
+:root{
+  --bg:#0B0E13; --panel:#11151D; --panel2:#0E1219; --line:#1D232E;
+  --ink:#E8EAF0; --muted:#8A93A6; --faint:#535D70;
+  --amber:#F5A623; --gold:#C8901A;
+  --bid:#2FBF71; --bid-dim:rgba(47,191,113,.14);
+  --ask:#F0544F; --ask-dim:rgba(240,84,79,.14);
+  --cyan:#58C7E0;
+  --seam:linear-gradient(90deg,transparent,var(--amber) 18%,var(--amber) 82%,transparent);
+  --font-ui:"Space Grotesk",system-ui,sans-serif;
+  --font-data:"IBM Plex Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--ink);font-family:var(--font-ui);font-size:14px}
+body{padding:0 0 48px}
+.num{font-family:var(--font-data);font-variant-numeric:tabular-nums}
+.up{color:var(--bid)} .down{color:var(--ask)} .muted{color:var(--muted)}
+button{font-family:var(--font-ui);cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:6px}
+button:focus-visible,input:focus-visible{outline:2px solid var(--amber);outline-offset:1px}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+
+/* ============ barre supérieure ============ */
+header{display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(11,14,19,.94);backdrop-filter:blur(6px);z-index:10}
+.brand{font-weight:700;letter-spacing:.04em}
+.brand b{color:var(--amber)}
+.eyebrow{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+#gstatus{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--faint);display:inline-block}
+.dot.ok{background:var(--bid);box-shadow:0 0 6px var(--bid)}
+.dot.warn{background:var(--amber)} .dot.err{background:var(--ask)}
+#equity{margin-left:auto;text-align:right}
+#equity .v{font-family:var(--font-data);font-weight:600;font-size:16px}
+
+/* ============ bannière réseau ============ */
+#netbanner{display:none;margin:12px 16px;padding:12px 14px;border:1px solid var(--gold);border-radius:8px;background:rgba(245,166,35,.07);font-size:13px;line-height:1.5}
+#netbanner b{color:var(--amber)}
+
+/* ============ onglets paires ============ */
+#tabs{display:flex;gap:8px;padding:12px 16px 0;overflow-x:auto;scrollbar-width:thin}
+.tab{flex:0 0 auto;min-width:118px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel);text-align:left}
+.tab .sym{font-weight:600;font-size:13px;display:flex;align-items:center;gap:6px}
+.tab .mid{font-family:var(--font-data);font-size:12px;color:var(--muted);margin-top:2px}
+.tab[aria-selected="true"]{border-color:var(--amber);background:linear-gradient(180deg,rgba(245,166,35,.10),rgba(245,166,35,.02))}
+.tab.err{opacity:.55}
+
+/* ============ grille ============ */
+main{display:grid;grid-template-columns:340px 1fr;gap:14px;padding:14px 16px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.sect-head{display:flex;align-items:baseline;gap:10px;padding:10px 14px 8px}
+.sect-head .eyebrow{color:var(--gold)}
+.sect-head .extra{margin-left:auto;font-size:11px;color:var(--muted);font-family:var(--font-data)}
+.seam{height:1px;background:var(--seam);opacity:.55}
+
+/* ladder */
+#ladder{font-family:var(--font-data);font-size:12.5px}
+#ladder table{width:100%;border-collapse:collapse}
+#ladder td{padding:2px 12px;position:relative;white-space:nowrap}
+#ladder td.qty,#ladder td.cum{text-align:right;color:var(--muted)}
+#ladder td.price{width:40%}
+#ladder tr.a td.price{color:var(--ask)} #ladder tr.b td.price{color:var(--bid)}
+#ladder tr td .depth{position:absolute;inset:0;z-index:0;transform-origin:right}
+#ladder tr.a .depth{background:var(--ask-dim)} #ladder tr.b .depth{background:var(--bid-dim)}
+#ladder td>span{position:relative;z-index:1}
+#spreadrow{padding:6px 12px;text-align:center;color:var(--amber);font-size:12px;font-family:var(--font-data);
+  border-top:1px solid rgba(245,166,35,.35);border-bottom:1px solid rgba(245,166,35,.35);
+  background:linear-gradient(90deg,transparent,rgba(245,166,35,.08),transparent)}
+#pairmeta{display:flex;flex-wrap:wrap;gap:12px;padding:8px 14px;font-size:11.5px;color:var(--muted);font-family:var(--font-data)}
+#imbbar{display:inline-flex;width:70px;height:7px;border-radius:4px;overflow:hidden;vertical-align:middle}
+#imbbar i{display:block;height:100%}
+#syncpanel{padding:14px;font-size:13px;line-height:1.9;color:var(--muted);display:none}
+#syncpanel .on{color:var(--amber)} #syncpanel .done{color:var(--bid)}
+
+/* chart + ticket */
+#right{display:flex;flex-direction:column;gap:14px}
+#chartwrap{position:relative;height:300px}
+#chart{width:100%;height:100%;display:block}
+.legend{display:flex;gap:14px;font-size:11px;color:var(--muted);font-family:var(--font-data)}
+.legend .b::before{content:"▲ ";color:var(--bid)} .legend .s::before{content:"▼ ";color:var(--ask)}
+.legend .e::before{content:"┄ ";color:var(--gold)}
+.sect-head{flex-wrap:wrap;row-gap:4px}
+#tfrow{display:flex;gap:4px;margin-left:auto}
+.tf{font-family:var(--font-data);font-size:11px;padding:4px 8px;color:var(--muted);border-radius:5px}
+.tf[aria-pressed="true"]{background:var(--amber);border-color:var(--amber);color:#221500;font-weight:600}
+#heatwrap{position:relative;height:240px}
+#heat{width:100%;height:100%;display:block}
+
+/* analyse & recommandation */
+#analysis{padding:12px 14px 14px;font-size:12.5px;line-height:1.55}
+#analysis .hint{color:var(--muted)}
+.reco{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px}
+.reco .badge{font-family:var(--font-data);font-weight:700;font-size:14px;padding:6px 14px;border-radius:8px;letter-spacing:.06em}
+.badge.long{background:var(--bid);color:#04150c}
+.badge.short{background:var(--ask);color:#1b0605}
+.badge.flat{background:var(--panel2);border:1px solid var(--gold);color:var(--amber)}
+.reco .why{color:var(--muted);font-size:12px}
+#analysis .cells{display:flex;flex-wrap:wrap;gap:6px 18px;font-family:var(--font-data);font-size:12px;color:var(--muted);margin-bottom:10px}
+#analysis .cells b{color:var(--ink)}
+#analysis .targets{font-family:var(--font-data);font-size:12.5px;margin-bottom:10px}
+#analysis .targets b{color:var(--ink)}
+#analysis ul{list-style:none;display:grid;gap:3px;font-size:12px;color:var(--muted)}
+#analysis ul .w{font-family:var(--font-data);display:inline-block;min-width:38px;color:var(--faint)}
+#analysis .disc{margin-top:10px;font-size:10.5px;color:var(--faint)}
+
+#ticket{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:end;padding:12px 14px 14px}
+.sideswitch{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.sideswitch button{border:0;border-radius:0;padding:9px 18px;font-weight:600;background:var(--panel2);color:var(--muted)}
+.sideswitch button[aria-pressed="true"].buy{background:var(--bid);color:#04150c}
+.sideswitch button[aria-pressed="true"].sell{background:var(--ask);color:#1b0605}
+.qtybox label{display:block;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-bottom:4px}
+.qtybox .row{display:flex;gap:6px}
+#qty{flex:1;min-width:90px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;color:var(--ink);font-family:var(--font-data);font-size:15px;padding:8px 10px}
+.pct{padding:6px 8px;font-size:11px;color:var(--muted)}
+#exec{padding:10px 22px;font-weight:700;font-size:14px;border:0;border-radius:8px;background:var(--amber);color:#221500}
+#exec:disabled{opacity:.4;cursor:not-allowed}
+#preview{grid-column:1/-1;font-family:var(--font-data);font-size:12px;color:var(--muted);min-height:18px}
+#preview b{color:var(--ink);font-weight:600}
+
+/* portefeuille + trades */
+#folio{display:flex;flex-wrap:wrap;gap:22px;padding:12px 14px;font-family:var(--font-data);font-size:13px}
+#folio .cell .eyebrow{margin-bottom:2px}
+#folio .cell .v{font-size:15px;font-weight:600}
+#trades-section{grid-column:1/-1}
+#tradetable{width:100%;border-collapse:collapse;font-family:var(--font-data);font-size:12.5px}
+#tradetable th{font-family:var(--font-ui);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);text-align:right;padding:8px 12px;border-bottom:1px solid var(--line)}
+#tradetable th:nth-child(-n+4){text-align:left}
+#tradetable td{padding:6px 12px;text-align:right;border-bottom:1px solid rgba(29,35,46,.6);white-space:nowrap}
+#tradetable td:nth-child(-n+4){text-align:left}
+#tradetable .st{font-size:10px;letter-spacing:.08em;padding:2px 7px;border-radius:10px;border:1px solid var(--line);color:var(--muted)}
+#tradetable .st.open{border-color:var(--gold);color:var(--amber)}
+#empty{padding:22px 14px;color:var(--muted);font-size:13px}
+#resetbtn,#csvbtn{font-size:11px;padding:5px 10px;color:var(--muted)}
+#csvbtn{margin-left:auto} 
+#otype,#oprice{background:var(--panel2);border:1px solid var(--line);border-radius:6px;color:var(--ink);font-family:var(--font-data);font-size:13px;padding:8px 10px}
+#oprice{width:110px;display:none}
+#orders{padding:4px 14px 10px;display:none}
+.order-row{display:flex;align-items:center;gap:10px;font-family:var(--font-data);font-size:12.5px;padding:4px 0;border-bottom:1px dashed rgba(29,35,46,.7)}
+.order-row .oid{color:var(--amber)} .order-row .cancel{font-size:11px;padding:3px 9px;color:var(--muted)}
+#statsrow{padding:0 14px 10px;font-family:var(--font-data);font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:16px}
+#statsrow b{color:var(--ink)}
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:8px;padding:10px 16px;font-family:var(--font-data);font-size:12.5px;opacity:0;pointer-events:none;transition:opacity .25s;max-width:92vw}
+#toast.show{opacity:1}
+.tablewrap{overflow-x:auto}
+footer{padding:18px 16px 0;font-size:11px;color:var(--faint);line-height:1.6}
+@media (max-width:920px){
+  main{grid-template-columns:1fr}
+  #chartwrap{height:230px}
+  #ticket{grid-template-columns:1fr}
+  #exec{width:100%}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="brand">LOB<b>·</b>TERMINAL</div>
+    <div class="eyebrow">Binance Spot L2 — entraînement</div>
+  </div>
+  <div id="gstatus"><span class="dot" id="gdot"></span><span id="gtext">connexion…</span></div>
+  <div id="equity">
+    <div class="eyebrow">Equity fictive</div>
+    <div class="v num" id="equityv">—</div>
+  </div>
+</header>
+
+<div id="netbanner">
+  <b>Flux Binance inaccessible depuis cet environnement.</b>
+  Cet aperçu peut bloquer les connexions externes. Deux solutions gratuites :
+  <b>1)</b> télécharger ce fichier HTML et l'ouvrir directement dans le navigateur (double-clic) ;
+  <b>2)</b> l'héberger gratuitement (GitHub Pages, Netlify Drop) pour une URL permanente.
+  Tout s'exécute dans le navigateur : aucun serveur, aucune clé API.
+</div>
+
+<nav id="tabs" role="tablist" aria-label="Paires"></nav>
+
+<main>
+  <section id="left">
+    <div class="sect-head"><span class="eyebrow">Carnet d'ordres</span><span class="extra" id="ladder-extra"></span></div>
+    <div class="seam"></div>
+    <div id="syncpanel"></div>
+    <div id="ladder">
+      <table><tbody id="asks"></tbody></table>
+      <div id="spreadrow">—</div>
+      <table><tbody id="bids"></tbody></table>
+    </div>
+    <div id="pairmeta"></div>
+  </section>
+
+  <div id="right">
+    <section>
+      <div class="sect-head">
+        <span class="eyebrow">Prix &amp; exécutions</span>
+        <span class="legend"><span class="b">achat</span><span class="s">vente</span><span class="e">entrée moyenne</span></span>
+        <div id="tfrow" role="group" aria-label="Horizon des bougies"></div>
+        <span class="extra" id="chart-extra"></span>
+      </div>
+      <div class="seam"></div>
+      <div id="chartwrap"><canvas id="chart"></canvas></div>
+    </section>
+
+    <section>
+      <div class="sect-head">
+        <span class="eyebrow">Carte de liquidité</span>
+        <span class="legend"><span class="b">bids posés</span><span class="s">asks posés</span></span>
+        <span class="extra" id="heat-extra"></span>
+      </div>
+      <div class="seam"></div>
+      <div id="heatwrap"><canvas id="heat"></canvas></div>
+    </section>
+
+    <section>
+      <div class="sect-head">
+        <span class="eyebrow">Analyse &amp; recommandation</span>
+        <span class="extra" id="ana-extra"></span>
+      </div>
+      <div class="seam"></div>
+      <div id="analysis"></div>
+    </section>
+
+    <section>
+      <div class="sect-head"><span class="eyebrow">Ordre fictif</span><span class="extra">marché · limite · stop — frais simulés 0,10 %</span></div>
+      <div class="seam"></div>
+      <div id="ticket">
+        <div class="sideswitch" role="group" aria-label="Sens">
+          <button id="side-buy" class="buy" aria-pressed="true">Acheter</button>
+          <button id="side-sell" class="sell" aria-pressed="false">Vendre</button>
+        </div>
+        <div class="qtybox">
+          <label for="otype">Type d'ordre</label>
+          <div class="row">
+            <select id="otype" aria-label="Type d'ordre">
+              <option value="MARKET">Marché</option>
+              <option value="LIMIT">Limite</option>
+              <option value="STOP">Stop</option>
+            </select>
+            <input id="oprice" inputmode="decimal" placeholder="prix" autocomplete="off" aria-label="Prix de déclenchement">
+          </div>
+        </div>
+        <div class="qtybox">
+          <label for="qty" id="qtylabel">Quantité</label>
+          <div class="row">
+            <input id="qty" inputmode="decimal" placeholder="0.00" autocomplete="off">
+            <button class="pct" data-pct="25">25 %</button>
+            <button class="pct" data-pct="50">50 %</button>
+            <button class="pct" data-pct="100">Max</button>
+          </div>
+        </div>
+        <button id="exec" disabled>Acheter</button>
+        <div id="preview"></div>
+      </div>
+    </section>
+  </div>
+
+  <section id="trades-section">
+    <div class="sect-head">
+      <span class="eyebrow">Portefeuille &amp; historique des trades</span>
+      <span class="extra">FIFO · PnL nets de frais</span>
+      <button id="csvbtn">Exporter CSV</button>
+      <button id="resetbtn">Réinitialiser le portefeuille</button>
+    </div>
+    <div class="seam"></div>
+    <div id="folio"></div>
+    <div id="statsrow"></div>
+    <div id="orders"></div>
+    <div class="tablewrap">
+    <table id="tradetable">
+      <thead><tr>
+        <th></th><th>Actif</th><th>Achat</th><th>Vente</th>
+        <th>Qté</th><th>P. achat</th><th>P. vente</th>
+        <th>PnL latent</th><th>latent %</th><th>PnL réalisé</th><th>réalisé %</th>
+      </tr></thead>
+      <tbody id="tradebody"></tbody>
+    </table>
+    </div>
+    <div id="empty">Aucun trade — placez un premier ordre fictif pour commencer l'entraînement.</div>
+  </section>
+</main>
+
+<footer>
+  Données publiques Binance Spot (WebSocket @depth@100ms + @trade + @kline, snapshots et klines REST),
+  reconstruites localement avec vérification stricte de séquence (U/u) et resynchronisation automatique.
+  Bougies multi-horizons (1m → mois) mises à jour en direct ; carte de liquidité échantillonnée chaque
+  seconde depuis le carnet reconstruit. Ordres fictifs exécutés contre le carnet réel : prix moyen avec
+  slippage, frais taker 0,10 %, lots FIFO, historique conservé localement.
+  Outil d'entraînement — aucun ordre réel, aucune clé API, aucune donnée transmise ailleurs qu'à Binance.
+</footer>
+
+<div id="toast" role="status"></div>
+
+<script>
+"use strict";
+/* ================= configuration ================= */
+const SYMBOLS = ["BTCUSDT","ETHUSDT","SOLUSDT","NEARUSDT","ONDOUSDT","RENDERUSDT"];
+const REST_BASES = ["https://api.binance.com","https://data-api.binance.vision"];
+const WS_BASES   = ["wss://stream.binance.com:9443","wss://data-stream.binance.vision"];
+const DEPTH_LIMIT = 1000, LADDER_ROWS = 11, FEE = 0.001, INITIAL_CASH = 10000;
+const HISTORY_MAX = 3600, STORE_KEY = "lob-paper-fills-v1";
+const HEAT_MAX = 360, HEAT_LEVELS = 40;   // carte de liquidité : 6 min à 1 éch./s, 40 niveaux/côté
+const TFS = [["LIVE","tick"],["1m","1m"],["5m","5m"],["15m","15m"],["30m","30m"],
+             ["1h","1h"],["4h","4h"],["1d","D"],["1w","W"],["1M","M"]];
+
+const $ = id => document.getElementById(id);
+const nf = (d) => new Intl.NumberFormat("fr-FR",{minimumFractionDigits:d,maximumFractionDigits:d});
+const fmt = (v,d) => v==null||!isFinite(v) ? "—" : nf(d).format(v);
+const fdate = ms => new Date(ms).toLocaleString("fr-FR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+const base = s => s.endsWith("USDT") ? s.slice(0,-4) : s;
+const decOf = str => { const i = str.indexOf("."); return i<0 ? 0 : str.length-i-1; };
+
+/* ================= stockage (window.storage → localStorage → mémoire) ===== */
+const store = (() => {
+  let mem = null;
+  return {
+    async get(){ 
+      if (typeof window.storage?.get === "function"){
+        try { const r = await window.storage.get(STORE_KEY); return r ? r.value : null; } catch { return null; }
+      }
+      try { return localStorage.getItem(STORE_KEY); } catch { return mem; }
+    },
+    async set(v){
+      if (typeof window.storage?.set === "function"){
+        try { await window.storage.set(STORE_KEY, v); return; } catch {}
+      }
+      try { localStorage.setItem(STORE_KEY, v); } catch { mem = v; }
+    },
+    async clear(){
+      if (typeof window.storage?.delete === "function"){ try { await window.storage.delete(STORE_KEY); } catch {} }
+      try { localStorage.removeItem(STORE_KEY); } catch {}
+      mem = null;
+    }
+  };
+})();
+
+/* ================= carnet d'ordres ================= */
+class Book {
+  constructor(){ this.clear(); }
+  clear(){ this.bids=new Map(); this.asks=new Map(); this.bidKeys=[]; this.askKeys=[]; this.ready=false;
+           this.priceDec=2; this.qtyDec=4; }
+  _upsert(map, keys, priceStr, qty, desc){
+    const has = map.has(priceStr);
+    if (qty === 0){ if (has){ map.delete(priceStr); keys.splice(this._find(keys,priceStr,desc),1); } return; }
+    map.set(priceStr, qty);
+    if (!has){ const i=this._insertPos(keys,priceStr,desc); keys.splice(i,0,priceStr); }
+  }
+  _insertPos(keys, p, desc){ const v=+p; let lo=0,hi=keys.length;
+    while(lo<hi){ const m=(lo+hi)>>1; const cmp = desc ? +keys[m]>v : +keys[m]<v; cmp?lo=m+1:hi=m; } return lo; }
+  _find(keys,p,desc){ const i=this._insertPos(keys,p,desc); return keys[i]===p ? i : keys.indexOf(p); }
+  load(snap){
+    this.clear();
+    for (const [p,q] of snap.bids) this._upsert(this.bids,this.bidKeys,p,+q,true);
+    for (const [p,q] of snap.asks) this._upsert(this.asks,this.askKeys,p,+q,false);
+    const sample=[...snap.bids.slice(0,3),...snap.asks.slice(0,3)];
+    this.priceDec = Math.max(...sample.map(l=>decOf(l[0])),0);
+    this.qtyDec   = Math.max(...sample.map(l=>decOf(l[1])),0);
+    this.ready = true;
+  }
+  apply(ev){
+    for (const [p,q] of ev.b) this._upsert(this.bids,this.bidKeys,p,+q,true);
+    for (const [p,q] of ev.a) this._upsert(this.asks,this.askKeys,p,+q,false);
+  }
+  top(side,n){ const keys = side==="b"?this.bidKeys:this.askKeys, map = side==="b"?this.bids:this.asks;
+    return keys.slice(0,n).map(k=>[+k, map.get(k)]); }
+  bestBid(){ return this.bidKeys.length ? +this.bidKeys[0] : null; }
+  bestAsk(){ return this.askKeys.length ? +this.askKeys[0] : null; }
+  mid(){ const b=this.bestBid(),a=this.bestAsk(); return b!=null&&a!=null ? (b+a)/2 : null; }
+  spread(){ const b=this.bestBid(),a=this.bestAsk(); return b!=null&&a!=null ? a-b : null; }
+  imbalance(n){ const b=this.top("b",n).reduce((s,l)=>s+l[1],0), a=this.top("a",n).reduce((s,l)=>s+l[1],0);
+    return b+a>0 ? b/(b+a) : null; }
+  walk(side, qty){ // prix moyen d'exécution en consommant le carnet
+    const levels = side==="BUY" ? this.top("a",1e6) : this.top("b",1e6);
+    let rest=qty, cost=0, lv=0;
+    for (const [p,q] of levels){ const take=Math.min(rest,q); cost+=p*take; rest-=take; lv++;
+      if (rest<=1e-12) return {avg:cost/qty, levels:lv, best:levels[0][0]}; }
+    return null; // liquidité insuffisante
+  }
+}
+
+/* ================= validation de séquence (protocole Binance) ============ */
+class SeqValidator {
+  constructor(lastUpdateId){ this.snap=lastUpdateId; this.last=null; }
+  evaluate(U,u){
+    if (u < U) return "MALFORMED";
+    if (this.last === null){
+      if (u <= this.snap) return "DISCARD_STALE";
+      if (U <= this.snap+1 && this.snap+1 <= u) return "ACCEPT_FIRST";
+      return "RESYNC_GAP";
+    }
+    if (U === this.last+1) return "ACCEPT";
+    return U > this.last+1 ? "RESYNC_GAP" : "RESYNC_OVERLAP";
+  }
+  commit(u){ this.last = u; }
+}
+
+/* ================= pile par paire ================= */
+class Pair {
+  constructor(symbol){
+    this.symbol=symbol; this.book=new Book(); this.state="CONNECTING";
+    this.buffer=[]; this.validator=null; this.applied=0; this.stale=0; this.resyncs=0;
+    this.lat=[]; this.msgTimes=[]; this.history=[]; this.error=null; this.fetching=false;
+    this.tape=[];   // [ts, prix, qté] — fenêtre 60 s des transactions réelles
+    this.heat=[];   // carte de liquidité : 1 échantillon/s du haut du carnet
+  }
+  get p50(){ if(!this.lat.length) return null; const s=[...this.lat].sort((x,y)=>x-y); return s[s.length>>1]; }
+  get rate(){ const cut=Date.now()-5000; this.msgTimes=this.msgTimes.filter(t=>t>cut); return this.msgTimes.length/5; }
+
+  onTrade(d){
+    const t=[+d.T, parseFloat(d.p), parseFloat(d.q)];
+    if (!isFinite(t[1])) return;
+    this.tape.push(t);
+    const cutoff=Date.now()-65000;
+    while (this.tape.length>6000 || (this.tape.length && this.tape[0][0]<cutoff)) this.tape.shift();
+  }
+  lastTrade(){ return this.tape.length ? this.tape[this.tape.length-1][1] : null; }
+  vwap60(){
+    const cutoff=Date.now()-60000; let pv=0, v=0;
+    for (const [ts,p,q] of this.tape){ if (ts>=cutoff){ pv+=p*q; v+=q; } }
+    return v>0 ? pv/v : null;
+  }
+  onDisconnect(){ if(this.state!=="ERROR"){ this.state="CONNECTING"; this.book.ready=false; this.buffer=[]; this.validator=null; } }
+  onConnect(){ if(this.state!=="ERROR") this.resync(false); }
+  resync(count=true){
+    if (count) this.resyncs++;
+    this.state="BUFFERING"; this.book.ready=false; this.buffer=[]; this.validator=null;
+    this.fetchSnapshot();
+  }
+  async fetchSnapshot(){
+    if (this.fetching) return; this.fetching=true;
+    for (let attempt=0; ; attempt++){
+      for (const b of REST_BASES){
+        try {
+          const r = await fetch(`${b}/api/v3/depth?symbol=${this.symbol}&limit=${DEPTH_LIMIT}`);
+          if (r.status === 400){ // symbole inconnu : définitif
+            this.state="ERROR"; this.error="Paire absente du spot Binance.com (Invalid symbol)";
+            this.fetching=false; render.tabs(); return;
+          }
+          if (!r.ok) throw new Error("HTTP "+r.status);
+          const d = await r.json();
+          this.applySnapshot(d); return;
+        } catch(e){ /* essayer la base suivante */ }
+      }
+      netTrouble();
+      await new Promise(res=>setTimeout(res, Math.min(1000*2**attempt, 30000)));
+      if (this.state==="ERROR" || this.state==="CONNECTING"){ this.fetching=false; return; }
+    }
+  }
+  applySnapshot(d){
+    this.fetching=false;  // un resync pendant le rejeu doit pouvoir relancer un fetch
+    this.state="DISCARDING_STALE";
+    this.book.load({bids:d.bids, asks:d.asks});
+    this.validator = new SeqValidator(d.lastUpdateId);
+    const buffered = this.buffer; this.buffer=[];
+    for (const ev of buffered) this.process(ev);
+    if (this.state==="DISCARDING_STALE") this.state="VALIDATING_FIRST";
+  }
+  onMessage(d, recv){
+    this.msgTimes.push(recv);
+    if (d.E){ this.lat.push(recv-d.E); if(this.lat.length>500) this.lat.shift(); }
+    if (this.state==="ERROR") return;
+    if (this.validator === null){ this.buffer.push(d); if(this.buffer.length>20000){ this.resync(); } return; }
+    this.process(d);
+  }
+  process(d){
+    const res = this.validator.evaluate(d.U, d.u);
+    if (res==="DISCARD_STALE"){ this.stale++; return; }
+    if (res==="ACCEPT_FIRST" || res==="ACCEPT"){
+      this.book.apply(d); this.validator.commit(d.u); this.applied++;
+      if (res==="ACCEPT_FIRST") this.state="STREAMING";
+      return;
+    }
+    this.resync(); // GAP / OVERLAP / MALFORMED : rejet complet + nouveau snapshot
+  }
+}
+
+/* ================= paper trading (FIFO, frais, persistance) ============== */
+const paper = {
+  cash: INITIAL_CASH, fills: [], lots: {}, closed: [], orders: [], nextId: 1,
+  async load(){
+    const raw = await store.get(); if (!raw) return;
+    try {
+      const data = JSON.parse(raw);
+      const fills = Array.isArray(data) ? data : (data.fills||[]);   // migration v1
+      for (const f of fills) this.replay(f,false);
+      if (!Array.isArray(data)){
+        this.orders = data.orders||[];
+        this.nextId = data.nextId || (this.orders.reduce((m,o)=>Math.max(m,o.id),0)+1);
+      }
+    } catch {}
+  },
+  persist(){ store.set(JSON.stringify({v:2, fills:this.fills, orders:this.orders, nextId:this.nextId})); },
+  replay(f, persist=true){
+    this.fills.push(f);
+    const notional = f.price*f.qty, fee = f.fee;
+    if (f.side==="BUY"){
+      this.cash -= notional+fee;
+      (this.lots[f.symbol] ||= []).push({ts:f.ts, qty:f.qty, price:f.price, eff:(notional+fee)/f.qty});
+    } else {
+      this.cash += notional-fee;
+      const sellEff=(notional-fee)/f.qty; let rest=f.qty; const q=this.lots[f.symbol]||[];
+      while (rest>1e-12 && q.length){
+        const lot=q[0], take=Math.min(rest,lot.qty);
+        this.closed.push({symbol:f.symbol, qty:take, buyTs:lot.ts, buyPrice:lot.price, buyEff:lot.eff,
+                          sellTs:f.ts, sellPrice:f.price, sellEff});
+        lot.qty-=take; rest-=take; if (lot.qty<=1e-12) q.shift();
+      }
+    }
+    if (persist) this.persist();
+  },
+  posQty(sym){ return (this.lots[sym]||[]).reduce((s,l)=>s+l.qty,0); },
+  posAvg(sym){ const q=this.lots[sym]||[]; const n=q.reduce((s,l)=>s+l.qty,0);
+    return n>0 ? q.reduce((s,l)=>s+l.eff*l.qty,0)/n : null; },
+  order(sym, side, qty, book){
+    if (!(qty>0)) throw "Quantité invalide";
+    if (!book.ready) throw "Carnet non synchronisé";
+    const w = book.walk(side, qty);
+    if (!w) throw "Liquidité insuffisante dans le carnet";
+    const notional=w.avg*qty, fee=notional*FEE;
+    if (side==="BUY" && notional+fee > this.cash+1e-9)
+      throw `Cash insuffisant (coût ${fmt(notional+fee,2)} USDT)`;
+    if (side==="SELL" && qty > this.posQty(sym)+1e-12)
+      throw `Position insuffisante (${fmt(this.posQty(sym),6)} ${base(sym)} disponible — pas de vente à découvert)`;
+    const f={ts:Date.now(), symbol:sym, side, qty, price:w.avg, fee};
+    this.replay(f);
+    return {...f, notional, slippage:Math.abs(w.avg-w.best), levels:w.levels};
+  },
+  placeOrder(sym, side, otype, qty, price){
+    if (!(qty>0)) throw "Quantité invalide";
+    if (!(price>0)) throw "Prix de déclenchement invalide";
+    const o={id:this.nextId++, ts:Date.now(), symbol:sym, side, otype, qty, price};
+    this.orders.push(o); this.persist();
+    return o;
+  },
+  cancelOrder(id){
+    const i=this.orders.findIndex(o=>o.id===id);
+    if (i<0) throw "Ordre introuvable";
+    const [o]=this.orders.splice(i,1); this.persist(); return o;
+  },
+  executeAt(sym, side, qty, price){   // exécution au prix limite (maker)
+    const notional=price*qty, fee=notional*FEE;
+    if (side==="BUY" && notional+fee > this.cash+1e-9) throw "Cash insuffisant au déclenchement";
+    if (side==="SELL" && qty > this.posQty(sym)+1e-12) throw "Position insuffisante";
+    const f={ts:Date.now(), symbol:sym, side, qty, price, fee};
+    this.replay(f);
+    return {...f, notional, slippage:0, levels:0};
+  },
+  checkTriggers(sym, book, last){
+    // Mêmes règles que le moteur Python :
+    // LIMIT BUY : ask<=lim ou trade<=lim → exécuté AU PRIX LIMITE ;
+    // LIMIT SELL : bid>=lim ou trade>=lim ; STOP → ordre au marché.
+    if (!book.ready) return [];
+    const bid=book.bestBid(), ask=book.bestAsk();
+    if (bid==null || ask==null) return [];
+    const events=[];
+    for (const o of this.orders.filter(o=>o.symbol===sym)){
+      const p=o.price;
+      let hit;
+      if (o.otype==="LIMIT") hit = o.side==="BUY" ? (ask<=p || (last!=null && last<=p))
+                                                  : (bid>=p || (last!=null && last>=p));
+      else                   hit = o.side==="BUY" ? (ask>=p || (last!=null && last>=p))
+                                                  : (bid<=p || (last!=null && last<=p));
+      if (!hit) continue;
+      let qty=o.qty;
+      if (o.side==="SELL"){
+        const avail=this.posQty(sym);
+        if (avail<=1e-12){ this.cancelOrder(o.id); events.push({order:o, report:null, reason:"position déjà clôturée"}); continue; }
+        qty=Math.min(qty, avail);
+      }
+      try {
+        const report = o.otype==="LIMIT" ? this.executeAt(sym, o.side, qty, p)
+                                         : this.order(sym, o.side, qty, book);
+        this.cancelOrder(o.id);
+        events.push({order:o, report, reason:null});
+      } catch(e){
+        this.cancelOrder(o.id);
+        events.push({order:o, report:null, reason:String(e)});
+      }
+    }
+    return events;
+  },
+  summary(mids){
+    let value=0, latent=0, basis=0;
+    for (const [sym,q] of Object.entries(this.lots)) for (const lot of q){
+      basis += lot.eff*lot.qty;
+      const m = mids[sym]; if (m!=null){ value+=m*lot.qty; latent+=(m-lot.eff)*lot.qty; }
+    }
+    const realized = this.closed.reduce((s,t)=>s+(t.sellEff-t.buyEff)*t.qty,0);
+    return {cash:this.cash, value, equity:this.cash+value, latent,
+            latentPct: basis? latent/basis*100 : 0, realized, realizedPct: realized/INITIAL_CASH*100};
+  },
+  async reset(){
+    await store.clear();
+    this.cash=INITIAL_CASH; this.fills=[]; this.lots={}; this.closed=[]; this.orders=[]; this.nextId=1;
+  }
+};
+
+/* ================= WebSocket combiné ================= */
+const pairs = SYMBOLS.map(s=>new Pair(s));
+const bySym = Object.fromEntries(pairs.map(p=>[p.symbol,p]));
+let ws=null, wsAttempt=0, wsBaseIdx=0, everConnected=false;
+
+function connectWS(){
+  const streams = SYMBOLS.flatMap(s=>[s.toLowerCase()+"@depth@100ms", s.toLowerCase()+"@trade"]).join("/");
+  const url = `${WS_BASES[wsBaseIdx % WS_BASES.length]}/stream?streams=${streams}`;
+  setStatus("warn","connexion au flux…");
+  try { ws = new WebSocket(url); } catch(e){ scheduleReconnect(); return; }
+  ws.onopen = () => { everConnected=true; wsAttempt=0; setStatus("ok","flux temps réel");
+    $("netbanner").style.display="none"; pairs.forEach(p=>p.onConnect()); };
+  ws.onmessage = (m) => {
+    const recv = Date.now();
+    let msg; try { msg = JSON.parse(m.data); } catch { return; }
+    const d = msg.data; if (!d) return;
+    const pair = bySym[d.s]; if (!pair) return;
+    if (d.e==="trade") pair.onTrade(d);
+    else if (d.e==="depthUpdate") pair.onMessage(d, recv);
+  };
+  ws.onclose = () => { pairs.forEach(p=>p.onDisconnect()); scheduleReconnect(); };
+  ws.onerror = () => { try{ws.close();}catch{} };
+}
+function scheduleReconnect(){
+  setStatus("err","flux interrompu — reconnexion…");
+  if (!everConnected){ wsBaseIdx++; netTrouble(); }
+  const delay = Math.min(1000*2**wsAttempt++, 30000)*(1+Math.random()*.25);
+  setTimeout(connectWS, delay);
+}
+function netTrouble(){ if (!everConnected) $("netbanner").style.display="block"; }
+function setStatus(k,t){ $("gdot").className="dot "+k; $("gtext").textContent=t; }
+
+/* ================= état UI ================= */
+let focus=0, side="BUY";
+const focused = () => pairs[focus];
+function setFocus(i){ focus=i; loadKlines(); render.tabs(); render.all(false); }
+
+/* ================= bougies (klines REST + flux @kline) ================= */
+let tf="1m";   // horizon affiché — "LIVE" = ligne tick par tick depuis l'ouverture
+const kl={sym:null, tf:null, candles:[], dec:2, ws:null, wsAttempt:0,
+          loading:false, error:null, seq:0, view:120, hover:null};
+
+function buildTfRow(){
+  const row=$("tfrow"); row.innerHTML="";
+  for (const [val,lab] of TFS){
+    const b=document.createElement("button");
+    b.className="tf"; b.textContent=lab;
+    b.setAttribute("aria-pressed", val===tf);
+    b.onclick=()=>{ tf=val; buildTfRow(); loadKlines(); render.chart(); };
+    row.appendChild(b);
+  }
+}
+function closeKlineWS(){
+  const w=kl.ws; kl.ws=null;
+  if (w){ w.onclose=null; w.onmessage=null; try{ w.close(); }catch{} }
+}
+async function loadKlines(){
+  const sym=focused().symbol;
+  if (tf==="LIVE"){ closeKlineWS(); kl.sym=null; kl.tf=null; kl.error=null; return; }
+  if (kl.sym===sym && kl.tf===tf && (kl.candles.length || kl.loading)) return;
+  const mySeq=++kl.seq;
+  kl.sym=sym; kl.tf=tf; kl.candles=[]; kl.error=null; kl.loading=true; kl.hover=null;
+  closeKlineWS(); render.chart();
+  for (const b of REST_BASES){
+    try {
+      const r=await fetch(`${b}/api/v3/klines?symbol=${sym}&interval=${tf}&limit=500`);
+      if (!r.ok) throw new Error("HTTP "+r.status);
+      const d=await r.json();
+      if (kl.seq!==mySeq) return;              // la sélection a changé entre-temps
+      kl.dec=Math.max(...d.slice(-3).map(k=>decOf(String(k[4]))),0);
+      kl.candles=d.map(k=>({t:+k[0], o:+k[1], h:+k[2], l:+k[3], c:+k[4], v:+k[5]}));
+      kl.loading=false; connectKlineWS(); render.chart(); return;
+    } catch(e){ /* essayer la base suivante */ }
+  }
+  if (kl.seq===mySeq){ kl.loading=false; kl.error="Historique indisponible (réseau bloqué ?)"; render.chart(); }
+}
+function connectKlineWS(){
+  const sym=kl.sym, t=kl.tf; if (!sym || !t) return;
+  const url=`${WS_BASES[wsBaseIdx % WS_BASES.length]}/ws/${sym.toLowerCase()}@kline_${t}`;
+  let sock; try { sock=new WebSocket(url); } catch(e){ return scheduleKlineReconnect(); }
+  kl.ws=sock;
+  sock.onopen=()=>{ kl.wsAttempt=0; };
+  sock.onmessage=m=>{
+    let k; try { k=JSON.parse(m.data).k; } catch { return; }
+    if (!k || k.s!==kl.sym || k.i!==kl.tf) return;
+    const c={t:+k.t, o:+k.o, h:+k.h, l:+k.l, c:+k.c, v:+k.v};
+    const last=kl.candles.at(-1);
+    if (last && last.t===c.t) kl.candles[kl.candles.length-1]=c;
+    else if (!last || c.t>last.t){ kl.candles.push(c); if (kl.candles.length>1000) kl.candles.shift(); }
+  };
+  sock.onclose=()=>{ if (kl.ws===sock) scheduleKlineReconnect(); };
+  sock.onerror=()=>{ try{ sock.close(); }catch{} };
+}
+function scheduleKlineReconnect(){
+  const sym=kl.sym, t=kl.tf;
+  const delay=Math.min(1000*2**kl.wsAttempt++, 30000)*(1+Math.random()*.25);
+  setTimeout(()=>{ if (kl.sym===sym && kl.tf===t && tf!=="LIVE") connectKlineWS(); }, delay);
+}
+
+/* ================= indicateurs techniques ================= */
+const EMA_PERIODS=[9,25,50,100,200];
+const EMA_COLORS={9:"#58C7E0",25:"#F5A623",50:"#C084FC",100:"#8A93A6",200:"#E8EAF0"};
+
+function emaSeries(vals, period){          // série EMA complète (null avant amorçage)
+  if (vals.length < period) return null;
+  const k=2/(period+1), out=new Array(vals.length).fill(null);
+  let e=0; for (let i=0;i<period;i++) e+=vals[i]; e/=period;
+  out[period-1]=e;
+  for (let i=period;i<vals.length;i++){ e=vals[i]*k+e*(1-k); out[i]=e; }
+  return out;
+}
+function rsiLast(closes, period=14){       // RSI de Wilder, dernière valeur
+  if (closes.length < period+1) return null;
+  let g=0,l=0;
+  for (let i=1;i<=period;i++){ const d=closes[i]-closes[i-1]; d>=0 ? g+=d : l-=d; }
+  g/=period; l/=period;
+  for (let i=period+1;i<closes.length;i++){
+    const d=closes[i]-closes[i-1];
+    g=(g*(period-1)+Math.max(d,0))/period;
+    l=(l*(period-1)+Math.max(-d,0))/period;
+  }
+  return l===0 ? 100 : 100-100/(1+g/l);
+}
+function atrLast(cs, period=14){           // ATR simple (moyenne des True Ranges)
+  if (cs.length < period+1) return null;
+  let s=0;
+  for (let i=cs.length-period;i<cs.length;i++)
+    s+=Math.max(cs[i].h-cs[i].l, Math.abs(cs[i].h-cs[i-1].c), Math.abs(cs[i].l-cs[i-1].c));
+  return s/period;
+}
+function findWalls(book, n=25){            // plus gros niveau posé de chaque côté (mur si ≫ médiane)
+  const scan=side=>{
+    const lv=book.top(side,n); if (lv.length<5) return null;
+    const med=[...lv.map(l=>l[1])].sort((a,b)=>a-b)[lv.length>>1]||0;
+    let best=null; for (const [p,q] of lv) if (!best || q>best.qty) best={price:p, qty:q};
+    return best ? {...best, ratio: med>0 ? best.qty/med : 0} : null;
+  };
+  return {bid:scan("b"), ask:scan("a")};
+}
+const WALL_MIN_RATIO=3;                    // un « mur » = au moins 3× la taille médiane des niveaux
+const wallOK=w=>!!w && w.ratio>=WALL_MIN_RATIO;
+
+/* ================= analyse & recommandation par horizon ================= */
+function analyze(){
+  if (tf==="LIVE" || kl.error || kl.candles.length<30) return null;
+  const p=focused(), book=p.book;
+  const cs=kl.candles, closes=cs.map(c=>c.c), last=closes.at(-1), lastC=cs.at(-1);
+  const emas={}, above={};
+  for (const per of EMA_PERIODS){
+    const s=emaSeries(closes,per);
+    emas[per]=s ? s.at(-1) : null;
+    if (emas[per]!=null) above[per]=last>=emas[per];
+  }
+  const rsi=rsiLast(closes), atr=atrLast(cs);
+  const volAvg=cs.length>=21 ? cs.slice(-21,-1).reduce((s,c)=>s+c.v,0)/20 : null;
+  const volX=volAvg>0 ? lastC.v/volAvg : null;
+  const imb=book.ready ? book.imbalance(10) : null;
+  const walls=book.ready ? findWalls(book) : {bid:null, ask:null};
+  const reasons=[]; let score=0, maxScore=0;
+  if (emas[200]!=null){ maxScore+=1;
+    if (above[200]){ score+=1; reasons.push(["+1","prix au-dessus de l'EMA 200 — tendance de fond haussière"]); }
+    else { score-=1; reasons.push(["−1","prix sous l'EMA 200 — tendance de fond baissière"]); } }
+  if (emas[9]!=null && emas[25]!=null){ maxScore+=1;
+    if (emas[9]>=emas[25]){ score+=1; reasons.push(["+1","EMA 9 > EMA 25 — momentum court terme haussier"]); }
+    else { score-=1; reasons.push(["−1","EMA 9 < EMA 25 — momentum court terme baissier"]); } }
+  if (emas[25]!=null && emas[50]!=null){ maxScore+=1;
+    if (emas[25]>=emas[50]){ score+=1; reasons.push(["+1","EMA 25 > EMA 50 — structure intermédiaire haussière"]); }
+    else { score-=1; reasons.push(["−1","EMA 25 < EMA 50 — structure intermédiaire baissière"]); } }
+  if (rsi!=null){ maxScore+=1;
+    if (rsi>=70){ score-=1; reasons.push(["−1",`RSI ${rsi.toFixed(0)} — surachat, risque de repli`]); }
+    else if (rsi<=30){ score+=1; reasons.push(["+1",`RSI ${rsi.toFixed(0)} — survente, rebond possible`]); }
+    else if (rsi>=50){ score+=0.5; reasons.push(["+0,5",`RSI ${rsi.toFixed(0)} — momentum positif`]); }
+    else { score-=0.5; reasons.push(["−0,5",`RSI ${rsi.toFixed(0)} — momentum négatif`]); } }
+  if (imb!=null){ maxScore+=1;
+    if (imb>=0.60){ score+=1; reasons.push(["+1",`carnet : ${(imb*100).toFixed(0)} % de bids sur 10 niveaux — pression acheteuse`]); }
+    else if (imb<=0.40){ score-=1; reasons.push(["−1",`carnet : ${(imb*100).toFixed(0)} % de bids sur 10 niveaux — pression vendeuse`]); }
+    else reasons.push(["0",`carnet équilibré (${(imb*100).toFixed(0)} % de bids)`]); }
+  if (walls.bid && walls.ask){ maxScore+=0.5;
+    if (walls.bid.qty>=walls.ask.qty*1.5){ score+=0.5; reasons.push(["+0,5","le plus gros mur est côté bid — coussin de liquidité sous le prix"]); }
+    else if (walls.ask.qty>=walls.bid.qty*1.5){ score-=0.5; reasons.push(["−0,5","le plus gros mur est côté ask — couvercle de liquidité au-dessus du prix"]); }
+    else reasons.push(["0","murs bid et ask de tailles comparables"]); }
+  if (volX!=null && volX>=1.5){ maxScore+=0.5;
+    if (lastC.c>=lastC.o){ score+=0.5; reasons.push(["+0,5",`volume ×${volX.toFixed(1)} vs moyenne 20, bougie haussière — accumulation`]); }
+    else { score-=0.5; reasons.push(["−0,5",`volume ×${volX.toFixed(1)} vs moyenne 20, bougie baissière — distribution`]); } }
+  const side = score>=2 ? "LONG" : score<=-2 ? "SHORT" : "NEUTRE";
+  let tp=null, sl=null, sup=null, res=null;
+  if (atr!=null){
+    sup = wallOK(walls.bid) ? walls.bid.price : last-2*atr;
+    res = wallOK(walls.ask) ? walls.ask.price : last+2*atr;
+    if (side==="LONG"){
+      tp = wallOK(walls.ask) && walls.ask.price>last+0.5*atr ? walls.ask.price : last+2*atr;
+      sl = wallOK(walls.bid) && walls.bid.price<last ? walls.bid.price-0.25*atr : last-1.5*atr;
+    } else if (side==="SHORT"){
+      tp = wallOK(walls.bid) && walls.bid.price<last-0.5*atr ? walls.bid.price : last-2*atr;
+      sl = wallOK(walls.ask) && walls.ask.price>last ? walls.ask.price+0.25*atr : last+1.5*atr;
+    }
+  }
+  const rr = tp!=null && sl!=null && Math.abs(last-sl)>1e-12 ? Math.abs(tp-last)/Math.abs(last-sl) : null;
+  return {last, lastC, side, score, maxScore, reasons, rsi, emas, above, atr, volX, imb, walls, tp, sl, sup, res, rr};
+}
+
+/* ================= rendu ================= */
+const render = {
+  tabs(){
+    const nav=$("tabs"); nav.innerHTML="";
+    pairs.forEach((p,i)=>{
+      const b=document.createElement("button");
+      b.className="tab"+(p.state==="ERROR"?" err":""); b.role="tab";
+      b.setAttribute("aria-selected", i===focus);
+      const dot = p.state==="STREAMING"?"ok":p.state==="ERROR"?"err":"warn";
+      const mid=p.book.mid();
+      b.innerHTML=`<span class="sym"><span class="dot ${dot}"></span>${base(p.symbol)}</span>
+                   <span class="mid num">${p.state==="ERROR"?"indisponible":fmt(mid,p.book.priceDec)}</span>`;
+      b.onclick=()=>setFocus(i);
+      nav.appendChild(b);
+    });
+  },
+  ladder(){
+    const p=focused(), book=p.book;
+    const sp=$("syncpanel"), lad=$("ladder");
+    if (p.state!=="STREAMING" || !book.ready){
+      lad.style.display="none"; sp.style.display="block";
+      if (p.state==="ERROR"){
+        sp.innerHTML=`<div class="down">✖ ${p.error||"Paire indisponible"}</div>
+          <div>Les autres paires continuent normalement.</div>`;
+      } else {
+        const steps=["CONNECTING","BUFFERING","DISCARDING_STALE","VALIDATING_FIRST","STREAMING"];
+        const cur=steps.indexOf(p.state==="SNAPSHOT_FETCHED"?"DISCARDING_STALE":p.state);
+        sp.innerHTML="Synchronisation…<br>"+steps.map((s,i)=>
+          `<span class="${i<cur?"done":i===cur?"on":""}">${i<cur?"✓":i===cur?"▶":"·"} ${s}</span>`).join("<br>");
+      }
+      return;
+    }
+    sp.style.display="none"; lad.style.display="block";
+    const asks=book.top("a",LADDER_ROWS).reverse(), bids=book.top("b",LADDER_ROWS);
+    let cum=0; const askCum=[...book.top("a",LADDER_ROWS)].map(l=>cum+=l[1]); cum=0;
+    const bidCum=bids.map(l=>cum+=l[1]);
+    const maxCum=Math.max(askCum.at(-1)||0, bidCum.at(-1)||0)||1;
+    const row=(cls,[pr,q],c)=>`<tr class="${cls}"><td class="price"><div class="depth" style="transform:scaleX(${(c/maxCum).toFixed(3)})"></div><span>${fmt(pr,book.priceDec)}</span></td><td class="qty"><span>${fmt(q,book.qtyDec)}</span></td><td class="cum"><span>${fmt(c,book.qtyDec)}</span></td></tr>`;
+    $("asks").innerHTML=asks.map((l,i)=>row("a",l,askCum[asks.length-1-i])).join("");
+    $("bids").innerHTML=bids.map((l,i)=>row("b",l,bidCum[i])).join("");
+    const s=book.spread(), m=book.mid();
+    $("spreadrow").textContent=`spread ${fmt(s,book.priceDec)} · ${fmt(s/m*1e4,3)} bp · mid ${fmt(m,book.priceDec)}`;
+    const imb=book.imbalance(LADDER_ROWS) ?? 0.5;
+    $("pairmeta").innerHTML=
+      `<span>imbalance <span id="imbbar"><i style="width:${(imb*100).toFixed(0)}%;background:var(--bid)"></i><i style="flex:1;background:var(--ask)"></i></span> <span class="up">${fmt(imb*100,0)} %</span></span>
+       <span>last <b class="num">${fmt(p.lastTrade(), book.priceDec)}</b></span>
+       <span>vwap60 <b class="num">${fmt(p.vwap60(), book.priceDec)}</b></span>
+       <span>latence p50 <b class="num">${fmt(p.p50,0)} ms</b></span>
+       <span>${fmt(p.rate,0)} msg/s</span>
+       <span>appliqués ${p.applied.toLocaleString("fr-FR")}</span>
+       <span>${p.resyncs?`<span style="color:var(--amber)">resyncs ${p.resyncs}</span>`:"resyncs 0"}</span>`;
+    $("ladder-extra").textContent=p.symbol;
+  },
+  chart(){
+    const p=focused(), cv=$("chart"), wrap=$("chartwrap");
+    const dpr=window.devicePixelRatio||1, W=wrap.clientWidth, H=wrap.clientHeight;
+    cv.width=W*dpr; cv.height=H*dpr;
+    const ctx=cv.getContext("2d"); ctx.scale(dpr,dpr); ctx.clearRect(0,0,W,H);
+    if (tf==="LIVE") render._chartLive(p,ctx,W,H);
+    else render._chartCandles(p,ctx,W,H);
+  },
+  _msg(ctx,t){ ctx.fillStyle="#535D70"; ctx.font="13px Space Grotesk"; ctx.fillText(t,16,28); },
+  _chartLive(p,ctx,W,H){
+    const hist=p.history;
+    $("chart-extra").textContent = hist.length>1 ? `${Math.round((hist.at(-1)[0]-hist[0][0])/60000)} min` : "";
+    if (hist.length<2){
+      render._msg(ctx, p.state==="ERROR" ? "Paire indisponible." : "Historique en construction…");
+      return;
+    }
+    const padL=10, padR=74, padT=14, padB=18, iw=W-padL-padR, ih=H-padT-padB;
+    const t0=hist[0][0], t1=hist.at(-1)[0];
+    const vals=hist.map(h=>h[1]);
+    let lo=Math.min(...vals), hi=Math.max(...vals);
+    const avg=paper.posAvg(p.symbol);
+    if (avg!=null){ lo=Math.min(lo,avg); hi=Math.max(hi,avg); }
+    if (hi===lo){ hi+=hi*1e-6||1e-9; lo-=lo*1e-6||1e-9; }
+    const X=t=>padL+iw*(t-t0)/Math.max(1,t1-t0), Y=v=>padT+ih*(1-(v-lo)/(hi-lo));
+    // grille + axe droit
+    ctx.font="11px IBM Plex Mono"; ctx.textBaseline="middle";
+    for (let g=0; g<=3; g++){
+      const v=lo+(hi-lo)*g/3, y=Y(v);
+      ctx.strokeStyle="rgba(29,35,46,.8)"; ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+      ctx.fillStyle="#8A93A6"; ctx.fillText(fmt(v,p.book.priceDec), W-padR+8, y);
+    }
+    // aire + ligne
+    const grad=ctx.createLinearGradient(0,padT,0,H-padB);
+    grad.addColorStop(0,"rgba(88,199,224,.20)"); grad.addColorStop(1,"rgba(88,199,224,0)");
+    ctx.beginPath(); hist.forEach((h,i)=> i?ctx.lineTo(X(h[0]),Y(h[1])):ctx.moveTo(X(h[0]),Y(h[1])));
+    ctx.strokeStyle="#58C7E0"; ctx.lineWidth=1.6; ctx.stroke();
+    ctx.lineTo(X(t1),H-padB); ctx.lineTo(X(t0),H-padB); ctx.closePath(); ctx.fillStyle=grad; ctx.fill();
+    // prix d'entrée moyen
+    if (avg!=null){
+      ctx.save(); ctx.setLineDash([5,4]); ctx.strokeStyle="#C8901A";
+      ctx.beginPath(); ctx.moveTo(padL,Y(avg)); ctx.lineTo(W-padR,Y(avg)); ctx.stroke(); ctx.restore();
+      ctx.fillStyle="#F5A623"; ctx.fillText(fmt(avg,p.book.priceDec), W-padR+8, Y(avg));
+    }
+    // marqueurs achats/ventes
+    for (const f of paper.fills){
+      if (f.symbol!==p.symbol || f.ts<t0-2000 || f.ts>t1+2000) continue;
+      const x=X(Math.min(Math.max(f.ts,t0),t1)), y=Y(Math.min(Math.max(f.price,lo),hi));
+      ctx.beginPath();
+      if (f.side==="BUY"){ ctx.moveTo(x,y+9); ctx.lineTo(x-6,y+18); ctx.lineTo(x+6,y+18); ctx.fillStyle="#2FBF71"; }
+      else { ctx.moveTo(x,y-9); ctx.lineTo(x-6,y-18); ctx.lineTo(x+6,y-18); ctx.fillStyle="#F0544F"; }
+      ctx.closePath(); ctx.fill();
+    }
+    // dernier prix
+    const last=vals.at(-1), ly=Y(last);
+    ctx.fillStyle="#0B0E13"; ctx.strokeStyle="#58C7E0";
+    const lw=ctx.measureText(fmt(last,p.book.priceDec)).width+10;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(W-padR+4,ly-9,lw,18,4);
+    else ctx.rect(W-padR+4,ly-9,lw,18);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle="#58C7E0"; ctx.fillText(fmt(last,p.book.priceDec), W-padR+9, ly);
+  },
+  _chartCandles(p,ctx,W,H){
+    if (p.state==="ERROR"){ $("chart-extra").textContent=""; return render._msg(ctx,"Paire indisponible."); }
+    if (kl.error){ $("chart-extra").textContent=""; return render._msg(ctx, kl.error); }
+    if (kl.loading && !kl.candles.length){ $("chart-extra").textContent=""; return render._msg(ctx,`Chargement de l'historique ${tf}…`); }
+    if (kl.candles.length<2){ $("chart-extra").textContent=""; return render._msg(ctx,"Historique en construction…"); }
+    const all=kl.candles, vis=all.slice(-kl.view), n=vis.length, dec=kl.dec;
+    const padL=10, padR=74, padT=14, padB=18, iw=W-padL-padR, ih=H-padT-padB;
+    const volH=Math.round(ih*0.16), ch=ih-volH-8;   // zone prix au-dessus, volumes en bas
+    let lo=Infinity, hi=-Infinity, maxV=0;
+    for (const c of vis){ if (c.l<lo) lo=c.l; if (c.h>hi) hi=c.h; if (c.v>maxV) maxV=c.v; }
+    if (hi===lo){ hi+=hi*1e-6||1e-9; lo-=lo*1e-6||1e-9; }
+    const cw=iw/n, bw=Math.max(1, cw*0.62);
+    const Xc=i=>padL+cw*(i+0.5), Y=v=>padT+ch*(1-(v-lo)/(hi-lo));
+    ctx.font="11px IBM Plex Mono"; ctx.textBaseline="middle";
+    for (let g=0; g<=3; g++){
+      const v=lo+(hi-lo)*g/3, y=Y(v);
+      ctx.strokeStyle="rgba(29,35,46,.8)"; ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+      ctx.fillStyle="#8A93A6"; ctx.fillText(fmt(v,dec), W-padR+8, y);
+    }
+    for (let i=0;i<n;i++){
+      const c=vis[i], up=c.c>=c.o, col=up?"#2FBF71":"#F0544F", x=Xc(i);
+      ctx.strokeStyle=col; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(x,Y(c.h)); ctx.lineTo(x,Y(c.l)); ctx.stroke();
+      const yo=Y(c.o), yc=Y(c.c);
+      ctx.fillStyle=col; ctx.fillRect(x-bw/2, Math.min(yo,yc), bw, Math.max(1, Math.abs(yc-yo)));
+      if (maxV>0){
+        const vh=volH*(c.v/maxV);
+        ctx.globalAlpha=.45; ctx.fillRect(x-bw/2, padT+ih-vh, bw, vh); ctx.globalAlpha=1;
+      }
+    }
+    // EMA 9/25/50/100/200
+    const closesAll=all.map(c=>c.c), off=all.length-n;
+    ctx.lineWidth=1.1; ctx.globalAlpha=.9;
+    for (const per of EMA_PERIODS){
+      const s=emaSeries(closesAll,per); if (!s) continue;
+      ctx.strokeStyle=EMA_COLORS[per]; ctx.beginPath();
+      let started=false;
+      for (let i=0;i<n;i++){
+        const v=s[off+i]; if (v==null) continue;
+        const x=Xc(i), y=Y(Math.min(Math.max(v,lo),hi));
+        started ? ctx.lineTo(x,y) : (ctx.moveTo(x,y), started=true);
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha=1; ctx.lineWidth=1;
+    ctx.font="10px IBM Plex Mono";
+    let lx=padL+4;
+    for (const per of EMA_PERIODS){
+      ctx.fillStyle=EMA_COLORS[per];
+      ctx.fillText("EMA"+per, lx, padT+2);
+      lx+=ctx.measureText("EMA"+per).width+10;
+    }
+    ctx.font="11px IBM Plex Mono";
+    // axe temps
+    ctx.fillStyle="#535D70"; ctx.textBaseline="alphabetic";
+    const short=["1m","5m","15m","30m","1h"].includes(tf);
+    const ft=ts=>{ const d=new Date(ts);
+      return tf==="1M" ? d.toLocaleDateString("fr-FR",{month:"2-digit",year:"2-digit"})
+           : short     ? d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})
+                       : d.toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit"}); };
+    for (const i of [0, Math.floor(n/3), Math.floor(2*n/3), n-1]){
+      const lab=ft(vis[i].t), w=ctx.measureText(lab).width;
+      ctx.fillText(lab, Math.min(Math.max(Xc(i)-w/2, padL), W-padR-w), H-4);
+    }
+    ctx.textBaseline="middle";
+    // prix d'entrée moyen
+    const avg=paper.posAvg(p.symbol);
+    if (avg!=null && avg>=lo && avg<=hi){
+      ctx.save(); ctx.setLineDash([5,4]); ctx.strokeStyle="#C8901A";
+      ctx.beginPath(); ctx.moveTo(padL,Y(avg)); ctx.lineTo(W-padR,Y(avg)); ctx.stroke(); ctx.restore();
+      ctx.fillStyle="#F5A623"; ctx.fillText(fmt(avg,dec), W-padR+8, Y(avg));
+    }
+    // marqueurs achats/ventes sur la bougie correspondante
+    for (const f of paper.fills){
+      if (f.symbol!==p.symbol || f.ts<vis[0].t) continue;
+      let i=n-1; while (i>0 && f.ts<vis[i].t) i--;
+      const x=Xc(i), y=Y(Math.min(Math.max(f.price,lo),hi));
+      ctx.beginPath();
+      if (f.side==="BUY"){ ctx.moveTo(x,y+9); ctx.lineTo(x-6,y+18); ctx.lineTo(x+6,y+18); ctx.fillStyle="#2FBF71"; }
+      else { ctx.moveTo(x,y-9); ctx.lineTo(x-6,y-18); ctx.lineTo(x+6,y-18); ctx.fillStyle="#F0544F"; }
+      ctx.closePath(); ctx.fill();
+    }
+    // murs de liquidité du carnet, projetés sur le graphique
+    if (p.book.ready){
+      const walls=findWalls(p.book);
+      for (const [w,col,lab] of [[walls.bid,"#2FBF71","mur bid"],[walls.ask,"#F0544F","mur ask"]]){
+        if (!wallOK(w) || w.price<lo || w.price>hi) continue;
+        const y=Y(w.price);
+        ctx.save(); ctx.setLineDash([6,4]); ctx.globalAlpha=.55; ctx.strokeStyle=col;
+        ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke(); ctx.restore(); ctx.globalAlpha=1;
+        ctx.fillStyle=col; ctx.fillText(`${lab} ${fmt(w.qty,p.book.qtyDec)}`, padL+4, y-8);
+      }
+    }
+    // dernier cours : ligne pointillée + étiquette
+    const lastC=vis.at(-1), last=lastC.c, ly=Y(Math.min(Math.max(last,lo),hi));
+    ctx.save(); ctx.setLineDash([2,3]); ctx.strokeStyle="rgba(232,234,240,.45)";
+    ctx.beginPath(); ctx.moveTo(padL,ly); ctx.lineTo(W-padR,ly); ctx.stroke(); ctx.restore();
+    const tagCol=lastC.c>=lastC.o?"#2FBF71":"#F0544F";
+    ctx.fillStyle="#0B0E13"; ctx.strokeStyle=tagCol;
+    const tag=fmt(last,dec), lw=ctx.measureText(tag).width+10;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(W-padR+4,ly-9,lw,18,4); else ctx.rect(W-padR+4,ly-9,lw,18);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle=tagCol; ctx.fillText(tag, W-padR+9, ly);
+    // survol : croix verticale + OHLCV
+    let extra=`${n}/${all.length} bougies · ${tf} · molette = zoom`;
+    if (kl.hover!=null && kl.hover>=padL && kl.hover<=W-padR){
+      const i=Math.min(n-1, Math.max(0, Math.floor((kl.hover-padL)/cw)));
+      const c=vis[i];
+      ctx.strokeStyle="rgba(138,147,166,.5)";
+      ctx.beginPath(); ctx.moveTo(Xc(i),padT); ctx.lineTo(Xc(i),padT+ih); ctx.stroke();
+      extra=`${ft(c.t)} · O ${fmt(c.o,dec)} H ${fmt(c.h,dec)} L ${fmt(c.l,dec)} C ${fmt(c.c,dec)} · vol ${fmt(c.v,2)}`;
+    }
+    $("chart-extra").textContent=extra;
+  },
+  heat(){
+    const p=focused(), cv=$("heat"), wrap=$("heatwrap");
+    const dpr=window.devicePixelRatio||1, W=wrap.clientWidth, H=wrap.clientHeight;
+    cv.width=W*dpr; cv.height=H*dpr;
+    const ctx=cv.getContext("2d"); ctx.scale(dpr,dpr); ctx.clearRect(0,0,W,H);
+    $("heat-extra").textContent=p.symbol;
+    if (p.state==="ERROR") return render._msg(ctx,"Paire indisponible.");
+    const hs=p.heat;
+    if (hs.length<2) return render._msg(ctx,"Carte en construction — échantillonnage du carnet (1/s)…");
+    const padL=10, padR=74, padT=10, padB=18, iw=W-padL-padR, ih=H-padT-padB;
+    const t0=hs[0].t, t1=hs.at(-1).t;
+    let mLo=Infinity, mHi=-Infinity;
+    for (const s of hs){ if (s.mid<mLo) mLo=s.mid; if (s.mid>mHi) mHi=s.mid; }
+    // bande verticale : l'amplitude du mid + une marge, jamais moins de ~12 bp
+    const band=Math.max((mHi-mLo)*0.6, mHi*0.0012, 1e-9);
+    const lo=mLo-band, hi=mHi+band;
+    let maxQ=0;
+    for (const s of hs){
+      for (const [pr,q] of s.b) if (pr>=lo && q>maxQ) maxQ=q;
+      for (const [pr,q] of s.a) if (pr<=hi && q>maxQ) maxQ=q;
+    }
+    if (!(maxQ>0)) return render._msg(ctx,"Carte en construction…");
+    const X=t=>padL+iw*(t-t0)/Math.max(1,t1-t0), Y=v=>padT+ih*(1-(v-lo)/(hi-lo));
+    const cw=Math.max(1, iw/Math.max(1,hs.length-1))+0.5, rh=Math.max(1.5, ih*0.008);
+    const denom=Math.log1p(maxQ);
+    for (const s of hs){
+      const x=X(s.t)-cw/2;
+      for (const [pr,q] of s.b){ if (pr<lo) continue;
+        ctx.fillStyle=`rgba(47,191,113,${(0.08+0.9*Math.log1p(q)/denom).toFixed(3)})`;
+        ctx.fillRect(x, Y(pr)-rh/2, cw, rh); }
+      for (const [pr,q] of s.a){ if (pr>hi) continue;
+        ctx.fillStyle=`rgba(240,84,79,${(0.08+0.9*Math.log1p(q)/denom).toFixed(3)})`;
+        ctx.fillRect(x, Y(pr)-rh/2, cw, rh); }
+    }
+    // ligne du mid
+    ctx.beginPath(); hs.forEach((s,i)=> i?ctx.lineTo(X(s.t),Y(s.mid)):ctx.moveTo(X(s.t),Y(s.mid)));
+    ctx.strokeStyle="rgba(232,234,240,.85)"; ctx.lineWidth=1.2; ctx.stroke();
+    // axes
+    ctx.font="11px IBM Plex Mono"; ctx.textBaseline="middle"; const dec=p.book.priceDec;
+    for (let g=0; g<=3; g++){ const v=lo+(hi-lo)*g/3;
+      ctx.fillStyle="#8A93A6"; ctx.fillText(fmt(v,dec), W-padR+8, Y(v)); }
+    const mNow=hs.at(-1).mid, ty=Y(mNow), tag=fmt(mNow,dec), tw=ctx.measureText(tag).width+10;
+    ctx.fillStyle="#0B0E13"; ctx.strokeStyle="#E8EAF0";
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(W-padR+4,ty-9,tw,18,4); else ctx.rect(W-padR+4,ty-9,tw,18);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle="#E8EAF0"; ctx.fillText(tag, W-padR+9, ty);
+    ctx.fillStyle="#535D70"; ctx.textBaseline="alphabetic";
+    const ftt=ts=>new Date(ts).toLocaleTimeString("fr-FR");
+    ctx.fillText(ftt(t0), padL, H-4);
+    const w1=ctx.measureText(ftt(t1)).width; ctx.fillText(ftt(t1), W-padR-w1, H-4);
+    $("heat-extra").textContent=
+      `${p.symbol} · ${Math.round((t1-t0)/1000)} s · ${HEAT_LEVELS} niveaux/côté · plus gros mur ${fmt(maxQ,p.book.qtyDec)}`;
+  },
+  ticket(){
+    const p=focused(), b=p.book, otype=$("otype").value;
+    $("qtylabel").textContent=`Quantité (${base(p.symbol)})`;
+    $("oprice").style.display = otype==="MARKET" ? "none" : "block";
+    const btn=$("exec");
+    btn.textContent = otype==="MARKET" ? (side==="BUY"?"Acheter":"Vendre")
+                                       : (otype==="LIMIT"?"Poser la limite":"Poser le stop");
+    btn.style.background = side==="BUY"?"var(--bid)":"var(--ask)";
+    btn.style.color = side==="BUY"?"#04150c":"#1b0605";
+    const qty=parseFloat(($("qty").value||"").replace(",","."));
+    const price=parseFloat(($("oprice").value||"").replace(",","."));
+    const pv=$("preview");
+    if (!b.ready){ pv.textContent="En attente de synchronisation du carnet…"; btn.disabled=true; return; }
+    if (!(qty>0)){ pv.textContent=""; btn.disabled=true; return; }
+    if (otype==="MARKET"){
+      const w=b.walk(side,qty);
+      if (!w){ pv.innerHTML=`<span class="down">Liquidité insuffisante dans le carnet pour cette quantité.</span>`; btn.disabled=true; return; }
+      const notional=w.avg*qty, fee=notional*FEE;
+      pv.innerHTML=`prix moyen estimé <b>${fmt(w.avg,b.priceDec)}</b> · slippage <b>${fmt(Math.abs(w.avg-w.best),b.priceDec)}</b> (${w.levels} niveaux) · montant <b>${fmt(notional,2)} USDT</b> · frais <b>${fmt(fee,2)}</b>`;
+      btn.disabled=false; return;
+    }
+    if (!(price>0)){ pv.textContent="Indiquer le prix de déclenchement."; btn.disabled=true; return; }
+    const mid=b.mid();
+    const rule = otype==="LIMIT"
+      ? (side==="BUY" ? "exécuté au prix limite quand le meilleur ask (ou un trade réel) passe sous "
+                      : "exécuté au prix limite quand le meilleur bid (ou un trade réel) passe au-dessus de ")
+      : (side==="BUY" ? "ordre au marché déclenché quand le prix atteint "
+                      : "stop-loss : ordre au marché déclenché quand le prix retombe à ");
+    const warn = otype==="LIMIT" && ((side==="BUY" && price>=b.bestAsk()) || (side==="SELL" && price<=b.bestBid()))
+      ? ` <span class="down">(déclenchement immédiat : limite du mauvais côté du marché)</span>` : "";
+    pv.innerHTML=`${rule}<b>${fmt(price,b.priceDec)}</b> · mid actuel <b>${fmt(mid,b.priceDec)}</b> · ≈ <b>${fmt(price*qty,2)} USDT</b>${warn}`;
+    btn.disabled=false;
+  },
+  orders(){
+    const wrap=$("orders");
+    if (!paper.orders.length){ wrap.style.display="none"; wrap.innerHTML=""; return; }
+    wrap.style.display="block";
+    wrap.innerHTML = paper.orders.map(o=>{
+      const dec = bySym[o.symbol]?.book.priceDec ?? 4;
+      const sideTxt = o.side==="BUY" ? `<span class="up">achat</span>` : `<span class="down">vente</span>`;
+      const typeTxt = o.otype==="LIMIT" ? "limite" : "stop";
+      return `<div class="order-row"><span class="oid">#${o.id}</span>`+
+             `<b>${base(o.symbol)}</b> ${sideTxt} <span>${typeTxt}</span>`+
+             `<span>${fmt(o.qty,6)} @ ${fmt(o.price,dec)}</span>`+
+             `<span class="muted">${fdate(o.ts)}</span>`+
+             `<button class="cancel" data-id="${o.id}">Annuler</button></div>`;
+    }).join("");
+    wrap.querySelectorAll(".cancel").forEach(btn=>btn.onclick=()=>{
+      try { const o=paper.cancelOrder(+btn.dataset.id); toast(`Ordre #${o.id} annulé`); render.all(false); }
+      catch(e){ toast(String(e), true); }
+    });
+  },
+  stats(){
+    const closed=paper.closed;
+    const pnls=closed.map(t=>(t.sellEff-t.buyEff)*t.qty);
+    const wins=pnls.filter(v=>v>0), losses=pnls.filter(v=>v<0);
+    const gp=wins.reduce((s,v)=>s+v,0), gl=-losses.reduce((s,v)=>s+v,0);
+    let peak=-Infinity, dd=0, ddPct=0;
+    for (const {eq} of equitySamples){ peak=Math.max(peak,eq); const d=peak-eq;
+      if (d>dd){ dd=d; ddPct=peak>0? d/peak*100 : 0; } }
+    const pf = gl>0 ? (gp/gl).toFixed(2) : (gp>0?"∞":"—");
+    $("statsrow").innerHTML =
+      `<span>trades clôturés <b>${closed.length}</b></span>`+
+      `<span>gagnants <b class="up">${wins.length}</b>${closed.length?` (${(wins.length/closed.length*100).toFixed(0)} %)`:""}</span>`+
+      `<span>perdants <b class="down">${losses.length}</b></span>`+
+      `<span>profit factor <b>${pf}</b></span>`+
+      `<span>max drawdown <b class="down">-${fmt(dd,2)} (-${ddPct.toFixed(2)} %)</b></span>`+
+      `<span>frais cumulés <b>${fmt(paper.fills.reduce((s,f)=>s+f.fee,0),2)}</b></span>`;
+  },
+  folio(){
+    const mids={}; pairs.forEach(p=>{ const m=p.book.mid(); if(m!=null) mids[p.symbol]=m; });
+    const s=paper.summary(mids);
+    $("equityv").textContent = fmt(s.equity,2)+" USDT";
+    const pnl=(v,pct)=>`<span class="${v>=0?"up":"down"}">${v>=0?"+":""}${fmt(v,2)} (${v>=0?"+":""}${fmt(pct,2)} %)</span>`;
+    $("folio").innerHTML=
+      `<div class="cell"><div class="eyebrow">Cash</div><div class="v">${fmt(s.cash,2)}</div></div>
+       <div class="cell"><div class="eyebrow">Positions</div><div class="v">${fmt(s.value,2)}</div></div>
+       <div class="cell"><div class="eyebrow">Equity</div><div class="v" style="color:var(--amber)">${fmt(s.equity,2)}</div></div>
+       <div class="cell"><div class="eyebrow">PnL latent</div><div class="v">${pnl(s.latent,s.latentPct)}</div></div>
+       <div class="cell"><div class="eyebrow">PnL réalisé</div><div class="v">${pnl(s.realized,s.realizedPct)}</div></div>`;
+    // table
+    const mid=sym=>mids[sym];
+    const rows=[];
+    for (const t of paper.closed){
+      const pnlv=(t.sellEff-t.buyEff)*t.qty, pct=(t.sellEff-t.buyEff)/t.buyEff*100;
+      rows.push({ts:t.sellTs, html:`<tr>
+        <td><span class="st">clos</span></td><td>${base(t.symbol)}</td>
+        <td>${fdate(t.buyTs)}</td><td>${fdate(t.sellTs)}</td>
+        <td>${fmt(t.qty,6)}</td><td>${fmt(t.buyPrice, bySym[t.symbol].book.priceDec||4)}</td>
+        <td>${fmt(t.sellPrice, bySym[t.symbol].book.priceDec||4)}</td>
+        <td class="muted">—</td><td class="muted">—</td>
+        <td class="${pnlv>=0?"up":"down"}">${pnlv>=0?"+":""}${fmt(pnlv,2)}</td>
+        <td class="${pnlv>=0?"up":"down"}">${pnlv>=0?"+":""}${fmt(pct,2)} %</td></tr>`});
+    }
+    for (const [sym,q] of Object.entries(paper.lots)) for (const lot of q){
+      const m=mid(sym), has=m!=null;
+      const pnlv=has?(m-lot.eff)*lot.qty:null, pct=has?(m-lot.eff)/lot.eff*100:null;
+      rows.push({ts:lot.ts, html:`<tr>
+        <td><span class="st open">ouvert</span></td><td>${base(sym)}</td>
+        <td>${fdate(lot.ts)}</td><td class="muted">—</td>
+        <td>${fmt(lot.qty,6)}</td><td>${fmt(lot.price, bySym[sym].book.priceDec||4)}</td>
+        <td class="muted">—</td>
+        <td class="${pnlv>=0?"up":"down"}">${has?(pnlv>=0?"+":"")+fmt(pnlv,2):"—"}</td>
+        <td class="${pnlv>=0?"up":"down"}">${has?(pct>=0?"+":"")+fmt(pct,2)+" %":"—"}</td>
+        <td class="muted">—</td><td class="muted">—</td></tr>`});
+    }
+    rows.sort((a,b)=>b.ts-a.ts);
+    $("tradebody").innerHTML=rows.map(r=>r.html).join("");
+    $("empty").style.display = rows.length ? "none" : "block";
+  },
+  analysis(){
+    const p=focused(), box=$("analysis");
+    $("ana-extra").textContent = tf==="LIVE" ? p.symbol : `${p.symbol} · ${tf}`;
+    if (tf==="LIVE"){
+      box.innerHTML=`<div class="hint">Choisir un horizon en bougies (1m → M) pour obtenir l'analyse technique et la recommandation associées.</div>`;
+      return;
+    }
+    if (p.state==="ERROR"){ box.innerHTML=`<div class="hint">Paire indisponible.</div>`; return; }
+    const a=analyze();
+    if (!a){
+      box.innerHTML=`<div class="hint">${kl.loading ? "Analyse en cours — chargement de l'historique…" : "Pas assez d'historique sur cet horizon pour une analyse fiable."}</div>`;
+      return;
+    }
+    const dec=kl.dec, qdec=p.book.qtyDec;
+    const cls=a.side==="LONG"?"long":a.side==="SHORT"?"short":"flat";
+    const label=a.side==="LONG"?"ACHETER · LONG":a.side==="SHORT"?"VENDRE · SHORT":"NEUTRE · ATTENDRE";
+    const fs=v=>(v>0?"+":v<0?"−":"")+String(Math.abs(v)).replace(".",",");
+    const emaTxt=EMA_PERIODS.map(per=>{
+      const v=a.emas[per];
+      if (v==null) return `<span class="muted">EMA${per} —</span>`;
+      return `<span class="${a.above[per]?"up":"down"}">EMA${per} ${a.above[per]?"↑":"↓"} ${fmt(v,dec)}</span>`;
+    }).join(" · ");
+    const wallTxt=w=>wallOK(w) ? `<b>${fmt(w.qty,qdec)}</b> @ <b>${fmt(w.price,dec)}</b> (×${w.ratio.toFixed(0)} la médiane)` : "aucun mur net";
+    const targets = a.side==="NEUTRE"
+      ? `Zone de travail : support <b>${fmt(a.sup,dec)}</b> · résistance <b>${fmt(a.res,dec)}</b> — attendre une cassure ou un signal plus net.`
+      : `Entrée ~ <b>${fmt(a.last,dec)}</b> · objectif TP <b class="${a.side==="LONG"?"up":"down"}">${fmt(a.tp,dec)}</b> · stop suggéré <b>${fmt(a.sl,dec)}</b> · R/R <b>${a.rr!=null?a.rr.toFixed(2):"—"}</b>`;
+    box.innerHTML=
+      `<div class="reco"><span class="badge ${cls}">${label}</span>`+
+      `<span class="why">score <b>${fs(a.score)}</b> / ±${String(a.maxScore).replace(".",",")} sur ${tf} — carnet d'ordres + technique combinés</span></div>`+
+      `<div class="cells">`+
+        `<span>RSI 14 <b>${a.rsi!=null?a.rsi.toFixed(0):"—"}</b></span>`+
+        `<span>ATR 14 <b>${fmt(a.atr,dec)}</b></span>`+
+        `<span>volume <b>${a.volX!=null?"×"+a.volX.toFixed(1):"—"}</b> vs moy. 20</span>`+
+        `<span>imbalance <b>${a.imb!=null?(a.imb*100).toFixed(0)+" %":"—"}</b> bids</span>`+
+      `</div>`+
+      `<div class="cells">${emaTxt}</div>`+
+      `<div class="targets">Zone de liquidité : mur bid ${wallTxt(a.walls.bid)} · mur ask ${wallTxt(a.walls.ask)}</div>`+
+      `<div class="targets">${targets}</div>`+
+      `<ul>${a.reasons.map(r=>`<li><span class="w">${r[0]}</span>${r[1]}</li>`).join("")}</ul>`+
+      `<div class="disc">Signal calculé automatiquement (EMA, RSI, volume, imbalance, murs du carnet) à but pédagogique — ce n'est pas un conseil en investissement.</div>`;
+  },
+  all(full){
+    render.ladder(); render.chart(); render.heat(); render.analysis(); render.ticket(); render.folio();
+    render.orders(); render.stats();
+    if (full) render.tabs();
+  }
+};
+
+/* ================= interactions ================= */
+$("side-buy").onclick=()=>{ side="BUY"; $("side-buy").setAttribute("aria-pressed",true); $("side-sell").setAttribute("aria-pressed",false); render.ticket(); };
+$("side-sell").onclick=()=>{ side="SELL"; $("side-sell").setAttribute("aria-pressed",true); $("side-buy").setAttribute("aria-pressed",false); render.ticket(); };
+$("qty").addEventListener("input", render.ticket);
+$("otype").addEventListener("change", render.ticket);
+$("oprice").addEventListener("input", render.ticket);
+document.querySelectorAll(".pct").forEach(b=>b.onclick=()=>{
+  const p=focused(), pct=+b.dataset.pct/100, m=p.book.mid(); if (m==null) return;
+  let q;
+  if (side==="BUY") q = paper.cash*pct/(m*(1+FEE));
+  else q = paper.posQty(p.symbol)*pct;
+  $("qty").value = q>0 ? q.toPrecision(6) : "";
+  render.ticket();
+});
+$("exec").onclick=()=>{
+  const p=focused(), qty=parseFloat(($("qty").value||"").replace(",","."));
+  const otype=$("otype").value, price=parseFloat(($("oprice").value||"").replace(",","."));
+  try {
+    if (otype==="MARKET"){
+      const r=paper.order(p.symbol, side, qty, p.book);
+      toast(`${side==="BUY"?"Acheté":"Vendu"} ${fmt(r.qty,6)} ${base(p.symbol)} @ ${fmt(r.price,p.book.priceDec)} · ${fmt(r.notional,2)} USDT · frais ${fmt(r.fee,2)} · slippage ${fmt(r.slippage,p.book.priceDec)}`);
+    } else {
+      const o=paper.placeOrder(p.symbol, side, otype, qty, price);
+      toast(`Ordre ${otype==="LIMIT"?"limite":"stop"} #${o.id} posé : ${side==="BUY"?"achat":"vente"} ${fmt(qty,6)} ${base(p.symbol)} @ ${fmt(price,p.book.priceDec)}`);
+      $("oprice").value="";
+    }
+    $("qty").value="";
+    render.all(false);
+  } catch(e){ toast(String(e), true); }
+};
+$("csvbtn").onclick=()=>{
+  const dt=ms=>new Date(ms).toISOString().replace("T"," ").slice(0,19);
+  const rows=[["statut","symbole","date_achat","date_vente","quantite","prix_achat","prix_vente","pnl_usdt","pnl_pct"]];
+  for (const t of paper.closed)
+    rows.push(["clos", t.symbol, dt(t.buyTs), dt(t.sellTs), t.qty, t.buyPrice, t.sellPrice,
+               ((t.sellEff-t.buyEff)*t.qty).toFixed(8), ((t.sellEff-t.buyEff)/t.buyEff*100).toFixed(4)]);
+  const mids={}; pairs.forEach(p=>{ const m=p.book.mid(); if (m!=null) mids[p.symbol]=m; });
+  for (const [sym,q] of Object.entries(paper.lots)) for (const lot of q){
+    const m=mids[sym];
+    rows.push(["ouvert", sym, dt(lot.ts), "", lot.qty, lot.price, "",
+               m!=null?((m-lot.eff)*lot.qty).toFixed(8):"", m!=null?((m-lot.eff)/lot.eff*100).toFixed(4):""]);
+  }
+  const csv=rows.map(r=>r.join(",")).join("\n");
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  a.download=`trades_${new Date().toISOString().slice(0,19).replace(/[:T-]/g,"")}.csv`;
+  a.click(); URL.revokeObjectURL(a.href);
+  toast("Historique exporté en CSV");
+};
+$("resetbtn").onclick=async()=>{
+  if (!confirm("Réinitialiser le portefeuille fictif ? L'historique des trades sera effacé.")) return;
+  await paper.reset(); render.all(false); toast("Portefeuille réinitialisé — capital de départ "+fmt(INITIAL_CASH,0)+" USDT");
+};
+document.addEventListener("keydown",e=>{
+  if (e.target.tagName==="INPUT") return;
+  const n=+e.key;
+  if (n>=1 && n<=pairs.length){ setFocus(n-1); }
+  else if (e.key==="a") $("side-buy").click();
+  else if (e.key==="v") $("side-sell").click();
+});
+let toastTimer=null;
+function toast(msg, err=false){
+  const t=$("toast"); t.textContent=msg; t.style.borderLeftColor = err?"var(--ask)":"var(--bid)";
+  t.classList.add("show"); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove("show"), 5000);
+}
+
+/* ================= boucles ================= */
+const equitySamples=[];   // courbe d'equity (1 s) : base du max drawdown
+setInterval(()=>{ // échantillonnage de l'historique (1 s)
+  const now=Date.now(), mids={};
+  for (const p of pairs){ const m=p.book.mid();
+    if (p.book.ready && m!=null){ p.history.push([now,m]); mids[p.symbol]=m;
+      if (p.history.length>HISTORY_MAX) p.history.shift();
+      p.heat.push({t:now, mid:m, b:p.book.top("b",HEAT_LEVELS), a:p.book.top("a",HEAT_LEVELS)});
+      if (p.heat.length>HEAT_MAX) p.heat.shift(); } }
+  equitySamples.push({t:now, eq:paper.summary(mids).equity});
+  if (equitySamples.length>HISTORY_MAX) equitySamples.shift();
+},1000);
+setInterval(()=>{ // déclencheurs des ordres en attente + rafraîchissement
+  if (paper.orders.length){
+    for (const p of pairs){
+      if (!p.book.ready) continue;
+      for (const ev of paper.checkTriggers(p.symbol, p.book, p.lastTrade())){
+        const o=ev.order, t=o.otype==="LIMIT"?"limite":"stop";
+        if (ev.report) toast(`Ordre ${t} #${o.id} exécuté : ${o.side==="BUY"?"acheté":"vendu"} ${fmt(ev.report.qty,6)} ${base(o.symbol)} @ ${fmt(ev.report.price, p.book.priceDec)}`);
+        else toast(`Ordre ${t} #${o.id} : ${ev.reason}`, true);
+      }
+    }
+  }
+  render.all(false);
+}, 500);
+setInterval(render.tabs, 2000);            // onglets (mids + états)
+window.addEventListener("resize", ()=>{ render.chart(); render.heat(); });
+$("chart").addEventListener("mousemove", e=>{
+  if (tf==="LIVE") return;
+  kl.hover = e.clientX - e.target.getBoundingClientRect().left;
+  render.chart();
+});
+$("chart").addEventListener("mouseleave", ()=>{ kl.hover=null; if (tf!=="LIVE") render.chart(); });
+$("chartwrap").addEventListener("wheel", e=>{
+  if (tf==="LIVE") return;
+  e.preventDefault();
+  kl.view = Math.round(Math.min(500, Math.max(30, kl.view*(e.deltaY>0 ? 1.25 : 0.8))));
+  render.chart();
+}, {passive:false});
+
+/* ================= démarrage ================= */
+(async function(){
+  await paper.load();
+  buildTfRow();
+  render.tabs(); render.all(false);
+  connectWS();
+  loadKlines();
+})();
+</script>
+</body>
+</html>
