@@ -1,0 +1,9 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Fichiers générés à l'exécution (logs, captures SQLite, portefeuilles, exports)
+*.log
+binance-orderbook-l2/data/
