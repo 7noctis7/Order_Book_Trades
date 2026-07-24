@@ -8,7 +8,7 @@ validation de ce plan.
 
 1. **Titre** : Binance L2 Order Book Reconstructor
    Résumé en une phrase : reconstruction locale temps réel des carnets d'ordres
-   L2 de plusieurs paires Binance (7 par défaut : BTC, ETH, SOL, NEAR, HYPE,
+   L2 de plusieurs paires Binance (6 par défaut : BTC, ETH, SOL, NEAR,
    ONDO, RENDER /USDT) (snapshot REST + flux WebSocket @depth@100ms), avec
    resynchronisation automatique et capture SQLite optionnelle.
 2. **Architecture** — tableau à deux colonnes (module → rôle) reprenant les
