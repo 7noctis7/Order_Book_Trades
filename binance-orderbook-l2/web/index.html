@@ -93,6 +93,23 @@ section{background:var(--panel);border:1px solid var(--line);border-radius:10px;
 #heatwrap{position:relative;height:240px}
 #heat{width:100%;height:100%;display:block}
 
+/* analyse & recommandation */
+#analysis{padding:12px 14px 14px;font-size:12.5px;line-height:1.55}
+#analysis .hint{color:var(--muted)}
+.reco{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px}
+.reco .badge{font-family:var(--font-data);font-weight:700;font-size:14px;padding:6px 14px;border-radius:8px;letter-spacing:.06em}
+.badge.long{background:var(--bid);color:#04150c}
+.badge.short{background:var(--ask);color:#1b0605}
+.badge.flat{background:var(--panel2);border:1px solid var(--gold);color:var(--amber)}
+.reco .why{color:var(--muted);font-size:12px}
+#analysis .cells{display:flex;flex-wrap:wrap;gap:6px 18px;font-family:var(--font-data);font-size:12px;color:var(--muted);margin-bottom:10px}
+#analysis .cells b{color:var(--ink)}
+#analysis .targets{font-family:var(--font-data);font-size:12.5px;margin-bottom:10px}
+#analysis .targets b{color:var(--ink)}
+#analysis ul{list-style:none;display:grid;gap:3px;font-size:12px;color:var(--muted)}
+#analysis ul .w{font-family:var(--font-data);display:inline-block;min-width:38px;color:var(--faint)}
+#analysis .disc{margin-top:10px;font-size:10.5px;color:var(--faint)}
+
 #ticket{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:end;padding:12px 14px 14px}
 .sideswitch{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .sideswitch button{border:0;border-radius:0;padding:9px 18px;font-weight:600;background:var(--panel2);color:var(--muted)}
@@ -198,6 +215,15 @@ footer{padding:18px 16px 0;font-size:11px;color:var(--faint);line-height:1.6}
       </div>
       <div class="seam"></div>
       <div id="heatwrap"><canvas id="heat"></canvas></div>
+    </section>
+
+    <section>
+      <div class="sect-head">
+        <span class="eyebrow">Analyse &amp; recommandation</span>
+        <span class="extra" id="ana-extra"></span>
+      </div>
+      <div class="seam"></div>
+      <div id="analysis"></div>
     </section>
 
     <section>
@@ -673,6 +699,108 @@ function scheduleKlineReconnect(){
   setTimeout(()=>{ if (kl.sym===sym && kl.tf===t && tf!=="LIVE") connectKlineWS(); }, delay);
 }
 
+/* ================= indicateurs techniques ================= */
+const EMA_PERIODS=[9,25,50,100,200];
+const EMA_COLORS={9:"#58C7E0",25:"#F5A623",50:"#C084FC",100:"#8A93A6",200:"#E8EAF0"};
+
+function emaSeries(vals, period){          // série EMA complète (null avant amorçage)
+  if (vals.length < period) return null;
+  const k=2/(period+1), out=new Array(vals.length).fill(null);
+  let e=0; for (let i=0;i<period;i++) e+=vals[i]; e/=period;
+  out[period-1]=e;
+  for (let i=period;i<vals.length;i++){ e=vals[i]*k+e*(1-k); out[i]=e; }
+  return out;
+}
+function rsiLast(closes, period=14){       // RSI de Wilder, dernière valeur
+  if (closes.length < period+1) return null;
+  let g=0,l=0;
+  for (let i=1;i<=period;i++){ const d=closes[i]-closes[i-1]; d>=0 ? g+=d : l-=d; }
+  g/=period; l/=period;
+  for (let i=period+1;i<closes.length;i++){
+    const d=closes[i]-closes[i-1];
+    g=(g*(period-1)+Math.max(d,0))/period;
+    l=(l*(period-1)+Math.max(-d,0))/period;
+  }
+  return l===0 ? 100 : 100-100/(1+g/l);
+}
+function atrLast(cs, period=14){           // ATR simple (moyenne des True Ranges)
+  if (cs.length < period+1) return null;
+  let s=0;
+  for (let i=cs.length-period;i<cs.length;i++)
+    s+=Math.max(cs[i].h-cs[i].l, Math.abs(cs[i].h-cs[i-1].c), Math.abs(cs[i].l-cs[i-1].c));
+  return s/period;
+}
+function findWalls(book, n=25){            // plus gros niveau posé de chaque côté (mur si ≫ médiane)
+  const scan=side=>{
+    const lv=book.top(side,n); if (lv.length<5) return null;
+    const med=[...lv.map(l=>l[1])].sort((a,b)=>a-b)[lv.length>>1]||0;
+    let best=null; for (const [p,q] of lv) if (!best || q>best.qty) best={price:p, qty:q};
+    return best ? {...best, ratio: med>0 ? best.qty/med : 0} : null;
+  };
+  return {bid:scan("b"), ask:scan("a")};
+}
+const WALL_MIN_RATIO=3;                    // un « mur » = au moins 3× la taille médiane des niveaux
+const wallOK=w=>!!w && w.ratio>=WALL_MIN_RATIO;
+
+/* ================= analyse & recommandation par horizon ================= */
+function analyze(){
+  if (tf==="LIVE" || kl.error || kl.candles.length<30) return null;
+  const p=focused(), book=p.book;
+  const cs=kl.candles, closes=cs.map(c=>c.c), last=closes.at(-1), lastC=cs.at(-1);
+  const emas={}, above={};
+  for (const per of EMA_PERIODS){
+    const s=emaSeries(closes,per);
+    emas[per]=s ? s.at(-1) : null;
+    if (emas[per]!=null) above[per]=last>=emas[per];
+  }
+  const rsi=rsiLast(closes), atr=atrLast(cs);
+  const volAvg=cs.length>=21 ? cs.slice(-21,-1).reduce((s,c)=>s+c.v,0)/20 : null;
+  const volX=volAvg>0 ? lastC.v/volAvg : null;
+  const imb=book.ready ? book.imbalance(10) : null;
+  const walls=book.ready ? findWalls(book) : {bid:null, ask:null};
+  const reasons=[]; let score=0, maxScore=0;
+  if (emas[200]!=null){ maxScore+=1;
+    if (above[200]){ score+=1; reasons.push(["+1","prix au-dessus de l'EMA 200 — tendance de fond haussière"]); }
+    else { score-=1; reasons.push(["−1","prix sous l'EMA 200 — tendance de fond baissière"]); } }
+  if (emas[9]!=null && emas[25]!=null){ maxScore+=1;
+    if (emas[9]>=emas[25]){ score+=1; reasons.push(["+1","EMA 9 > EMA 25 — momentum court terme haussier"]); }
+    else { score-=1; reasons.push(["−1","EMA 9 < EMA 25 — momentum court terme baissier"]); } }
+  if (emas[25]!=null && emas[50]!=null){ maxScore+=1;
+    if (emas[25]>=emas[50]){ score+=1; reasons.push(["+1","EMA 25 > EMA 50 — structure intermédiaire haussière"]); }
+    else { score-=1; reasons.push(["−1","EMA 25 < EMA 50 — structure intermédiaire baissière"]); } }
+  if (rsi!=null){ maxScore+=1;
+    if (rsi>=70){ score-=1; reasons.push(["−1",`RSI ${rsi.toFixed(0)} — surachat, risque de repli`]); }
+    else if (rsi<=30){ score+=1; reasons.push(["+1",`RSI ${rsi.toFixed(0)} — survente, rebond possible`]); }
+    else if (rsi>=50){ score+=0.5; reasons.push(["+0,5",`RSI ${rsi.toFixed(0)} — momentum positif`]); }
+    else { score-=0.5; reasons.push(["−0,5",`RSI ${rsi.toFixed(0)} — momentum négatif`]); } }
+  if (imb!=null){ maxScore+=1;
+    if (imb>=0.60){ score+=1; reasons.push(["+1",`carnet : ${(imb*100).toFixed(0)} % de bids sur 10 niveaux — pression acheteuse`]); }
+    else if (imb<=0.40){ score-=1; reasons.push(["−1",`carnet : ${(imb*100).toFixed(0)} % de bids sur 10 niveaux — pression vendeuse`]); }
+    else reasons.push(["0",`carnet équilibré (${(imb*100).toFixed(0)} % de bids)`]); }
+  if (walls.bid && walls.ask){ maxScore+=0.5;
+    if (walls.bid.qty>=walls.ask.qty*1.5){ score+=0.5; reasons.push(["+0,5","le plus gros mur est côté bid — coussin de liquidité sous le prix"]); }
+    else if (walls.ask.qty>=walls.bid.qty*1.5){ score-=0.5; reasons.push(["−0,5","le plus gros mur est côté ask — couvercle de liquidité au-dessus du prix"]); }
+    else reasons.push(["0","murs bid et ask de tailles comparables"]); }
+  if (volX!=null && volX>=1.5){ maxScore+=0.5;
+    if (lastC.c>=lastC.o){ score+=0.5; reasons.push(["+0,5",`volume ×${volX.toFixed(1)} vs moyenne 20, bougie haussière — accumulation`]); }
+    else { score-=0.5; reasons.push(["−0,5",`volume ×${volX.toFixed(1)} vs moyenne 20, bougie baissière — distribution`]); } }
+  const side = score>=2 ? "LONG" : score<=-2 ? "SHORT" : "NEUTRE";
+  let tp=null, sl=null, sup=null, res=null;
+  if (atr!=null){
+    sup = wallOK(walls.bid) ? walls.bid.price : last-2*atr;
+    res = wallOK(walls.ask) ? walls.ask.price : last+2*atr;
+    if (side==="LONG"){
+      tp = wallOK(walls.ask) && walls.ask.price>last+0.5*atr ? walls.ask.price : last+2*atr;
+      sl = wallOK(walls.bid) && walls.bid.price<last ? walls.bid.price-0.25*atr : last-1.5*atr;
+    } else if (side==="SHORT"){
+      tp = wallOK(walls.bid) && walls.bid.price<last-0.5*atr ? walls.bid.price : last-2*atr;
+      sl = wallOK(walls.ask) && walls.ask.price>last ? walls.ask.price+0.25*atr : last+1.5*atr;
+    }
+  }
+  const rr = tp!=null && sl!=null && Math.abs(last-sl)>1e-12 ? Math.abs(tp-last)/Math.abs(last-sl) : null;
+  return {last, lastC, side, score, maxScore, reasons, rsi, emas, above, atr, volX, imb, walls, tp, sl, sup, res, rr};
+}
+
 /* ================= rendu ================= */
 const render = {
   tabs(){
@@ -818,6 +946,29 @@ const render = {
         ctx.globalAlpha=.45; ctx.fillRect(x-bw/2, padT+ih-vh, bw, vh); ctx.globalAlpha=1;
       }
     }
+    // EMA 9/25/50/100/200
+    const closesAll=all.map(c=>c.c), off=all.length-n;
+    ctx.lineWidth=1.1; ctx.globalAlpha=.9;
+    for (const per of EMA_PERIODS){
+      const s=emaSeries(closesAll,per); if (!s) continue;
+      ctx.strokeStyle=EMA_COLORS[per]; ctx.beginPath();
+      let started=false;
+      for (let i=0;i<n;i++){
+        const v=s[off+i]; if (v==null) continue;
+        const x=Xc(i), y=Y(Math.min(Math.max(v,lo),hi));
+        started ? ctx.lineTo(x,y) : (ctx.moveTo(x,y), started=true);
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha=1; ctx.lineWidth=1;
+    ctx.font="10px IBM Plex Mono";
+    let lx=padL+4;
+    for (const per of EMA_PERIODS){
+      ctx.fillStyle=EMA_COLORS[per];
+      ctx.fillText("EMA"+per, lx, padT+2);
+      lx+=ctx.measureText("EMA"+per).width+10;
+    }
+    ctx.font="11px IBM Plex Mono";
     // axe temps
     ctx.fillStyle="#535D70"; ctx.textBaseline="alphabetic";
     const short=["1m","5m","15m","30m","1h"].includes(tf);
@@ -846,6 +997,17 @@ const render = {
       if (f.side==="BUY"){ ctx.moveTo(x,y+9); ctx.lineTo(x-6,y+18); ctx.lineTo(x+6,y+18); ctx.fillStyle="#2FBF71"; }
       else { ctx.moveTo(x,y-9); ctx.lineTo(x-6,y-18); ctx.lineTo(x+6,y-18); ctx.fillStyle="#F0544F"; }
       ctx.closePath(); ctx.fill();
+    }
+    // murs de liquidité du carnet, projetés sur le graphique
+    if (p.book.ready){
+      const walls=findWalls(p.book);
+      for (const [w,col,lab] of [[walls.bid,"#2FBF71","mur bid"],[walls.ask,"#F0544F","mur ask"]]){
+        if (!wallOK(w) || w.price<lo || w.price>hi) continue;
+        const y=Y(w.price);
+        ctx.save(); ctx.setLineDash([6,4]); ctx.globalAlpha=.55; ctx.strokeStyle=col;
+        ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke(); ctx.restore(); ctx.globalAlpha=1;
+        ctx.fillStyle=col; ctx.fillText(`${lab} ${fmt(w.qty,p.book.qtyDec)}`, padL+4, y-8);
+      }
     }
     // dernier cours : ligne pointillée + étiquette
     const lastC=vis.at(-1), last=lastC.c, ly=Y(Math.min(Math.max(last,lo),hi));
@@ -1033,8 +1195,49 @@ const render = {
     $("tradebody").innerHTML=rows.map(r=>r.html).join("");
     $("empty").style.display = rows.length ? "none" : "block";
   },
+  analysis(){
+    const p=focused(), box=$("analysis");
+    $("ana-extra").textContent = tf==="LIVE" ? p.symbol : `${p.symbol} · ${tf}`;
+    if (tf==="LIVE"){
+      box.innerHTML=`<div class="hint">Choisir un horizon en bougies (1m → M) pour obtenir l'analyse technique et la recommandation associées.</div>`;
+      return;
+    }
+    if (p.state==="ERROR"){ box.innerHTML=`<div class="hint">Paire indisponible.</div>`; return; }
+    const a=analyze();
+    if (!a){
+      box.innerHTML=`<div class="hint">${kl.loading ? "Analyse en cours — chargement de l'historique…" : "Pas assez d'historique sur cet horizon pour une analyse fiable."}</div>`;
+      return;
+    }
+    const dec=kl.dec, qdec=p.book.qtyDec;
+    const cls=a.side==="LONG"?"long":a.side==="SHORT"?"short":"flat";
+    const label=a.side==="LONG"?"ACHETER · LONG":a.side==="SHORT"?"VENDRE · SHORT":"NEUTRE · ATTENDRE";
+    const fs=v=>(v>0?"+":v<0?"−":"")+String(Math.abs(v)).replace(".",",");
+    const emaTxt=EMA_PERIODS.map(per=>{
+      const v=a.emas[per];
+      if (v==null) return `<span class="muted">EMA${per} —</span>`;
+      return `<span class="${a.above[per]?"up":"down"}">EMA${per} ${a.above[per]?"↑":"↓"} ${fmt(v,dec)}</span>`;
+    }).join(" · ");
+    const wallTxt=w=>wallOK(w) ? `<b>${fmt(w.qty,qdec)}</b> @ <b>${fmt(w.price,dec)}</b> (×${w.ratio.toFixed(0)} la médiane)` : "aucun mur net";
+    const targets = a.side==="NEUTRE"
+      ? `Zone de travail : support <b>${fmt(a.sup,dec)}</b> · résistance <b>${fmt(a.res,dec)}</b> — attendre une cassure ou un signal plus net.`
+      : `Entrée ~ <b>${fmt(a.last,dec)}</b> · objectif TP <b class="${a.side==="LONG"?"up":"down"}">${fmt(a.tp,dec)}</b> · stop suggéré <b>${fmt(a.sl,dec)}</b> · R/R <b>${a.rr!=null?a.rr.toFixed(2):"—"}</b>`;
+    box.innerHTML=
+      `<div class="reco"><span class="badge ${cls}">${label}</span>`+
+      `<span class="why">score <b>${fs(a.score)}</b> / ±${String(a.maxScore).replace(".",",")} sur ${tf} — carnet d'ordres + technique combinés</span></div>`+
+      `<div class="cells">`+
+        `<span>RSI 14 <b>${a.rsi!=null?a.rsi.toFixed(0):"—"}</b></span>`+
+        `<span>ATR 14 <b>${fmt(a.atr,dec)}</b></span>`+
+        `<span>volume <b>${a.volX!=null?"×"+a.volX.toFixed(1):"—"}</b> vs moy. 20</span>`+
+        `<span>imbalance <b>${a.imb!=null?(a.imb*100).toFixed(0)+" %":"—"}</b> bids</span>`+
+      `</div>`+
+      `<div class="cells">${emaTxt}</div>`+
+      `<div class="targets">Zone de liquidité : mur bid ${wallTxt(a.walls.bid)} · mur ask ${wallTxt(a.walls.ask)}</div>`+
+      `<div class="targets">${targets}</div>`+
+      `<ul>${a.reasons.map(r=>`<li><span class="w">${r[0]}</span>${r[1]}</li>`).join("")}</ul>`+
+      `<div class="disc">Signal calculé automatiquement (EMA, RSI, volume, imbalance, murs du carnet) à but pédagogique — ce n'est pas un conseil en investissement.</div>`;
+  },
   all(full){
-    render.ladder(); render.chart(); render.heat(); render.ticket(); render.folio();
+    render.ladder(); render.chart(); render.heat(); render.analysis(); render.ticket(); render.folio();
     render.orders(); render.stats();
     if (full) render.tabs();
   }

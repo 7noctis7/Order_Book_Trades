@@ -1,6 +1,7 @@
-# Déploie la version web autonome (lob-terminal.html) sur GitHub Pages.
-# Prérequis : dépôt public (Pages est payant pour les dépôts privés).
-# Le site est ensuite servi sur https://7noctis7.github.io/Order_Book_Trades/
+# Publie la version web autonome (lob-terminal.html) sur GitHub Pages via la
+# branche gh-pages : GitHub active Pages automatiquement pour cette branche,
+# aucun réglage manuel n'est nécessaire (dépôt public requis).
+# Site : https://7noctis7.github.io/Order_Book_Trades/
 name: deploy-pages
 
 on:
@@ -9,37 +10,29 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  publish:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Préparer le site — l'app web devient la page d'accueil
+      - name: Construire le site — l'app web devient la page d'accueil
         run: |
-          mkdir _site
+          mkdir -p _site
           cp lob-terminal.html _site/index.html
 
-      - name: Activer Pages si ce n'est pas déjà fait
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
-
-      - name: Déployer
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Publier sur la branche gh-pages
+        run: |
+          cd _site
+          git init -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Déploiement du site (${GITHUB_SHA})"
+          git push --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages

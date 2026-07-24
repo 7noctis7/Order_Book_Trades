@@ -186,11 +186,23 @@ serveur, aucune clé, aucune donnée transmise ailleurs qu'à Binance.
 S'y ajoutent un **graphique en bougies temps réel avec historique** (500
 dernières bougies via l'API klines publique + flux WebSocket `@kline`) sur
 neuf horizons — `1m 5m 15m 30m 1h 4h D W M` (bouton `tick` pour revenir à la
-ligne tick par tick) — avec volumes, molette pour zoomer, OHLCV au survol,
-marqueurs d'exécution et ligne d'entrée moyenne ; et une **carte de
-liquidité** type Bookmap : la profondeur du carnet reconstruit (40 niveaux
-par côté) est échantillonnée chaque seconde et dessinée dans le temps —
-intensité = quantité posée, vert = bids, rouge = asks, ligne claire = mid.
+ligne tick par tick) — avec volumes, EMA 9/25/50/100/200 superposées,
+molette pour zoomer, OHLCV au survol, marqueurs d'exécution et ligne
+d'entrée moyenne ; et une **carte de liquidité** type Bookmap : la
+profondeur du carnet reconstruit (40 niveaux par côté) est échantillonnée
+chaque seconde et dessinée dans le temps — intensité = quantité posée,
+vert = bids, rouge = asks, ligne claire = mid.
+
+Chaque horizon est accompagné d'un module d'**analyse & recommandation** :
+badge **ACHETER/LONG · VENDRE/SHORT · NEUTRE** avec score motivé ligne par
+ligne — EMA 9/25/50/100/200 (tendance et structure), RSI 14 (surachat /
+survente), volume relatif (moyenne 20), imbalance du carnet sur 10 niveaux
+et murs de liquidité (plus gros niveau posé ≥ 3× la médiane, projetés en
+pointillés sur les bougies) — plus la **zone de liquidité** (mur bid =
+support, mur ask = résistance) et des **objectifs de prix** : take profit
+calé sur le mur opposé ou ±2×ATR, stop suggéré derrière le mur ou ±1,5×ATR,
+ratio risque/rendement. Signaux indicatifs et pédagogiques — en aucun cas
+un conseil en investissement.
 
 Trois façons de l'utiliser, toutes gratuites :
 
