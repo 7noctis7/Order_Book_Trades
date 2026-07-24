@@ -1,8 +1,8 @@
 # Binance L2 Order Book Reconstructor
 
-Reconstruction locale, en temps réel, des carnets d'ordres L2 de plusieurs paires Binance Spot simultanément (BTC, ETH, SOL, NEAR, HYPE, ONDO, RENDER contre USDT par défaut — liste libre dans `config.yaml`) : snapshot REST + flux WebSocket `@depth@100ms`, vérification stricte de la continuité de séquence (protocole U/u), resynchronisation automatique sur toute rupture, mode démo console multi-paires et capture brute optionnelle en SQLite. Chaque paire vit dans une pile totalement isolée (connexion WebSocket, file, carnet, machine à états) : un resync, une déconnexion ou un symbole invalide n'affecte jamais les autres paires. Flux public en lecture seule — aucune clé API.
+Reconstruction locale, en temps réel, des carnets d'ordres L2 de plusieurs paires Binance Spot simultanément (BTC, ETH, SOL, NEAR, ONDO, RENDER contre USDT par défaut — liste libre dans `config.yaml`) : snapshot REST + flux WebSocket `@depth@100ms`, vérification stricte de la continuité de séquence (protocole U/u), resynchronisation automatique sur toute rupture, mode démo console multi-paires et capture brute optionnelle en SQLite. Chaque paire vit dans une pile totalement isolée (connexion WebSocket, file, carnet, machine à états) : un resync, une déconnexion ou un symbole invalide n'affecte jamais les autres paires. Flux public en lecture seule — aucune clé API.
 
-S'y ajoutent : **paper trading** complet (ordres marché/limite/stop contre le carnet reconstruit, lots FIFO, PnL nets de frais), **backtest par rejeu** de la capture SQLite à vitesse variable, **statistiques de performance** (win rate, profit factor, max drawdown, courbe d'equity, export CSV), flux **@trade** (last, VWAP, déclenchements réalistes), un second exchange (**Kraken**, WebSocket v2 avec checksum CRC32), un **export Prometheus** avec dashboard Grafana, et une **version web autonome** (`web/index.html`).
+S'y ajoutent : **paper trading** complet (ordres marché/limite/stop contre le carnet reconstruit, lots FIFO, PnL nets de frais), **backtest par rejeu** de la capture SQLite à vitesse variable, **statistiques de performance** (win rate, profit factor, max drawdown, courbe d'equity, export CSV), flux **@trade** (last, VWAP, déclenchements réalistes), un second exchange (**Kraken**, WebSocket v2 avec checksum CRC32), un **export Prometheus** avec dashboard Grafana, et une **version web autonome** (`web/index.html`) : bougies temps réel multi-horizons (1m → 1M) et carte de liquidité type Bookmap.
 
 ## Installation
 
@@ -22,7 +22,7 @@ python main.py                 # utilise config.yaml
 python main.py --config autre.yaml
 ```
 
-L'écran affiche un tableau de bord de toutes les paires — mid, spread en bp, jauge d'imbalance, latence p50, débit, état (● streaming, spinner en synchro, ✖ indisponible) — et le carnet détaillé de la paire au focus : ladder asks/bids avec profondeur cumulée, spread central, compteurs. **Navigation : `Tab`/`→` paire suivante, `←` précédente, `1`-`9` sélection directe.** Pendant la synchronisation d'une paire, sa progression dans la machine à états (`CONNECTING → BUFFERING → SNAPSHOT_FETCHED → DISCARDING_STALE → VALIDATING_FIRST → STREAMING`) est affichée. Les décimales de prix et de quantités sont déduites automatiquement du tick réel de chaque paire (`price_decimals: auto`) — BTC s'affiche en 0.01, ONDO en 0.0001, sans configuration. Rafraîchissement : `display.refresh_seconds` (1 s par défaut). Avec 7 paires et `levels: 8`, prévoir un terminal d'au moins ~36 lignes (sinon réduire `levels`). **Ctrl+C** déclenche un arrêt propre : fermeture de la socket WebSocket, flush et fermeture de la base de capture, restauration du terminal.
+L'écran affiche un tableau de bord de toutes les paires — mid, spread en bp, jauge d'imbalance, latence p50, débit, état (● streaming, spinner en synchro, ✖ indisponible) — et le carnet détaillé de la paire au focus : ladder asks/bids avec profondeur cumulée, spread central, compteurs. **Navigation : `Tab`/`→` paire suivante, `←` précédente, `1`-`9` sélection directe.** Pendant la synchronisation d'une paire, sa progression dans la machine à états (`CONNECTING → BUFFERING → SNAPSHOT_FETCHED → DISCARDING_STALE → VALIDATING_FIRST → STREAMING`) est affichée. Les décimales de prix et de quantités sont déduites automatiquement du tick réel de chaque paire (`price_decimals: auto`) — BTC s'affiche en 0.01, ONDO en 0.0001, sans configuration. Rafraîchissement : `display.refresh_seconds` (1 s par défaut). Avec 6 paires et `levels: 8`, prévoir un terminal d'au moins ~32 lignes (sinon réduire `levels`). **Ctrl+C** déclenche un arrêt propre : fermeture de la socket WebSocket, flush et fermeture de la base de capture, restauration du terminal.
 
 `display.enabled: false` bascule en mode service : pas d'affichage, logs sur la console.
 
@@ -182,6 +182,27 @@ ordres en attente avec annulation (déclenchés par le carnet **et** par les
 transactions réelles), graphique avec marqueurs, table des trades, ligne de
 statistiques (win rate, profit factor, max drawdown) et export CSV. Aucun
 serveur, aucune clé, aucune donnée transmise ailleurs qu'à Binance.
+
+S'y ajoutent un **graphique en bougies temps réel avec historique** (500
+dernières bougies via l'API klines publique + flux WebSocket `@kline`) sur
+neuf horizons — `1m 5m 15m 30m 1h 4h D W M` (bouton `tick` pour revenir à la
+ligne tick par tick) — avec volumes, EMA 9/25/50/100/200 superposées,
+molette pour zoomer, OHLCV au survol, marqueurs d'exécution et ligne
+d'entrée moyenne ; et une **carte de liquidité** type Bookmap : la
+profondeur du carnet reconstruit (40 niveaux par côté) est échantillonnée
+chaque seconde et dessinée dans le temps — intensité = quantité posée,
+vert = bids, rouge = asks, ligne claire = mid.
+
+Chaque horizon est accompagné d'un module d'**analyse & recommandation** :
+badge **ACHETER/LONG · VENDRE/SHORT · NEUTRE** avec score motivé ligne par
+ligne — EMA 9/25/50/100/200 (tendance et structure), RSI 14 (surachat /
+survente), volume relatif (moyenne 20), imbalance du carnet sur 10 niveaux
+et murs de liquidité (plus gros niveau posé ≥ 3× la médiane, projetés en
+pointillés sur les bougies) — plus la **zone de liquidité** (mur bid =
+support, mur ask = résistance) et des **objectifs de prix** : take profit
+calé sur le mur opposé ou ±2×ATR, stop suggéré derrière le mur ou ±1,5×ATR,
+ratio risque/rendement. Signaux indicatifs et pédagogiques — en aucun cas
+un conseil en investissement.
 
 Trois façons de l'utiliser, toutes gratuites :
 
