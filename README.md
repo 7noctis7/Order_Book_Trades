@@ -187,22 +187,33 @@ S'y ajoutent un **graphique en bougies temps réel avec historique** (500
 dernières bougies via l'API klines publique + flux WebSocket `@kline`) sur
 neuf horizons — `1m 5m 15m 30m 1h 4h D W M` (bouton `tick` pour revenir à la
 ligne tick par tick) — avec volumes, EMA 9/25/50/100/200 superposées,
-molette pour zoomer, OHLCV au survol, marqueurs d'exécution et ligne
-d'entrée moyenne ; et une **carte de liquidité** type Bookmap : la
-profondeur du carnet reconstruit (40 niveaux par côté) est échantillonnée
-chaque seconde et dessinée dans le temps — intensité = quantité posée,
-vert = bids, rouge = asks, ligne claire = mid.
+sous-graphique RSI 14 (bornes 30/70), molette pour zoomer, OHLCV au survol,
+marqueurs d'exécution, ligne d'entrée moyenne, murs de liquidité et
+objectifs TP/SL projetés sur les bougies. Une barre de **filtres** permet
+d'afficher ou masquer chaque indicateur individuellement (EMA ×5, volume,
+RSI, murs, TP/SL) ; horizon, paire et filtres choisis sont **mémorisés
+localement** d'une visite à l'autre.
 
-Chaque horizon est accompagné d'un module d'**analyse & recommandation** :
-badge **ACHETER/LONG · VENDRE/SHORT · NEUTRE** avec score motivé ligne par
-ligne — EMA 9/25/50/100/200 (tendance et structure), RSI 14 (surachat /
-survente), volume relatif (moyenne 20), imbalance du carnet sur 10 niveaux
-et murs de liquidité (plus gros niveau posé ≥ 3× la médiane, projetés en
-pointillés sur les bougies) — plus la **zone de liquidité** (mur bid =
-support, mur ask = résistance) et des **objectifs de prix** : take profit
-calé sur le mur opposé ou ±2×ATR, stop suggéré derrière le mur ou ±1,5×ATR,
-ratio risque/rendement. Signaux indicatifs et pédagogiques — en aucun cas
-un conseil en investissement.
+La **carte de liquidité** type Bookmap est agrégée en grille temps × prix
+(la profondeur du carnet — 40 niveaux par côté — est échantillonnée chaque
+seconde) avec une échelle au 95ᵉ percentile : les murs saturent en pleine
+couleur sans écraser la liquidité ordinaire. Le plus gros mur de chaque
+côté est étiqueté directement sur la carte — **ZONE LONG · support**
+(bids) et **ZONE SHORT · résistance** (asks) — et le survol affiche
+heure, prix et quantité posée de chaque case.
+
+Chaque horizon est accompagné d'un module d'**analyse & recommandation**
+volontairement compact : badge **ACHETER/LONG · VENDRE/SHORT · NEUTRE**,
+phrase de synthèse avec score, et objectifs — entrée, take profit calé sur
+le mur opposé ou ±2×ATR, stop suggéré derrière le mur ou ±1,5×ATR, ratio
+risque/rendement. Tout le détail du calcul (RSI 14, ATR, volume relatif,
+imbalance sur 10 niveaux, EMA 9/25/50/100/200, murs, justification ligne
+par ligne) est replié derrière « Détails du calcul ». Un **mur** est un
+niveau ≥ 4× le niveau moyen représentant ≥ 6 % du côté scanné (les carnets
+réels étant remplis de niveaux-poussière, une médiane serait inutilisable) ;
+les supports/résistances retenus sont à distance utile du prix (≥ 0,3×ATR).
+Signaux indicatifs et pédagogiques — en aucun cas un conseil en
+investissement.
 
 Trois façons de l'utiliser, toutes gratuites :
 

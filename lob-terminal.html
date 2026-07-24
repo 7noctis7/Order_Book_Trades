@@ -81,7 +81,12 @@ section{background:var(--panel);border:1px solid var(--line);border-radius:10px;
 
 /* chart + ticket */
 #right{display:flex;flex-direction:column;gap:14px}
-#chartwrap{position:relative;height:300px}
+#chartwrap{position:relative;height:340px}
+#indrow{display:flex;gap:4px;flex-wrap:wrap;padding:8px 14px 2px}
+.ind{font-family:var(--font-data);font-size:10.5px;padding:3px 8px;color:var(--muted);border-radius:5px;display:inline-flex;align-items:center;gap:5px}
+.ind i{width:7px;height:7px;border-radius:2px;flex:none}
+.ind[aria-pressed="true"]{color:var(--ink);border-color:var(--gold)}
+.ind[aria-pressed="false"]{opacity:.4}
 #chart{width:100%;height:100%;display:block}
 .legend{display:flex;gap:14px;font-size:11px;color:var(--muted);font-family:var(--font-data)}
 .legend .b::before{content:"▲ ";color:var(--bid)} .legend .s::before{content:"▼ ";color:var(--ask)}
@@ -109,6 +114,11 @@ section{background:var(--panel);border:1px solid var(--line);border-radius:10px;
 #analysis ul{list-style:none;display:grid;gap:3px;font-size:12px;color:var(--muted)}
 #analysis ul .w{font-family:var(--font-data);display:inline-block;min-width:38px;color:var(--faint)}
 #analysis .disc{margin-top:10px;font-size:10.5px;color:var(--faint)}
+#analysis details{margin-top:2px}
+#analysis summary{cursor:pointer;color:var(--muted);font-size:11.5px;user-select:none}
+#analysis summary:hover{color:var(--ink)}
+#analysis details .cells{margin-top:8px}
+#analysis details .targets{margin-bottom:8px}
 
 #ticket{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:end;padding:12px 14px 14px}
 .sideswitch{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
@@ -152,7 +162,7 @@ section{background:var(--panel);border:1px solid var(--line);border-radius:10px;
 footer{padding:18px 16px 0;font-size:11px;color:var(--faint);line-height:1.6}
 @media (max-width:920px){
   main{grid-template-columns:1fr}
-  #chartwrap{height:230px}
+  #chartwrap{height:280px}
   #ticket{grid-template-columns:1fr}
   #exec{width:100%}
 }
@@ -204,13 +214,14 @@ footer{padding:18px 16px 0;font-size:11px;color:var(--faint);line-height:1.6}
         <span class="extra" id="chart-extra"></span>
       </div>
       <div class="seam"></div>
+      <div id="indrow" role="group" aria-label="Indicateurs affichés"></div>
       <div id="chartwrap"><canvas id="chart"></canvas></div>
     </section>
 
     <section>
       <div class="sect-head">
         <span class="eyebrow">Carte de liquidité</span>
-        <span class="legend"><span class="b">bids posés</span><span class="s">asks posés</span></span>
+        <span class="legend"><span class="b">zone LONG · bids</span><span class="s">zone SHORT · asks</span></span>
         <span class="extra" id="heat-extra"></span>
       </div>
       <div class="seam"></div>
@@ -314,6 +325,8 @@ const fmt = (v,d) => v==null||!isFinite(v) ? "—" : nf(d).format(v);
 const fdate = ms => new Date(ms).toLocaleString("fr-FR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
 const base = s => s.endsWith("USDT") ? s.slice(0,-4) : s;
 const decOf = str => { const i = str.indexOf("."); return i<0 ? 0 : str.length-i-1; };
+// décimales utiles : ignore les zéros de remplissage Binance ("64208.19000000" → 2)
+const decOfTrim = s => { s=String(s); if (s.includes(".")) s=s.replace(/0+$/,"").replace(/\.$/,""); return decOf(s); };
 
 /* ================= stockage (window.storage → localStorage → mémoire) ===== */
 const store = (() => {
@@ -357,9 +370,9 @@ class Book {
     this.clear();
     for (const [p,q] of snap.bids) this._upsert(this.bids,this.bidKeys,p,+q,true);
     for (const [p,q] of snap.asks) this._upsert(this.asks,this.askKeys,p,+q,false);
-    const sample=[...snap.bids.slice(0,3),...snap.asks.slice(0,3)];
-    this.priceDec = Math.max(...sample.map(l=>decOf(l[0])),0);
-    this.qtyDec   = Math.max(...sample.map(l=>decOf(l[1])),0);
+    const sample=[...snap.bids.slice(0,6),...snap.asks.slice(0,6)];
+    this.priceDec = Math.max(...sample.map(l=>decOfTrim(l[0])),0);
+    this.qtyDec   = Math.max(...sample.map(l=>decOfTrim(l[1])),0);
     this.ready = true;
   }
   apply(ev){
@@ -635,7 +648,22 @@ function setStatus(k,t){ $("gdot").className="dot "+k; $("gtext").textContent=t;
 /* ================= état UI ================= */
 let focus=0, side="BUY";
 const focused = () => pairs[focus];
-function setFocus(i){ focus=i; loadKlines(); render.tabs(); render.all(false); }
+function setFocus(i){ focus=i; savePrefs(); loadKlines(); render.tabs(); render.all(false); }
+
+/* ===== préférences d'affichage (persistées localement) ===== */
+const PREFS_KEY="lob-ui-prefs-v1";
+const show={ema9:true, ema25:true, ema50:true, ema100:true, ema200:true,
+            vol:true, rsi:true, walls:true, targets:true};
+let anaOpen=false, heatHover=null;
+function loadPrefs(){
+  try {
+    const p=JSON.parse(localStorage.getItem(PREFS_KEY)||"{}");
+    if (p.show) for (const k of Object.keys(show)) if (typeof p.show[k]==="boolean") show[k]=p.show[k];
+    if (p.tf && TFS.some(t=>t[0]===p.tf)) tf=p.tf;
+    if (Number.isInteger(p.focus) && p.focus>=0 && p.focus<SYMBOLS.length) focus=p.focus;
+  } catch {}
+}
+function savePrefs(){ try { localStorage.setItem(PREFS_KEY, JSON.stringify({show, tf, focus})); } catch {} }
 
 /* ================= bougies (klines REST + flux @kline) ================= */
 let tf="1m";   // horizon affiché — "LIVE" = ligne tick par tick depuis l'ouverture
@@ -648,7 +676,22 @@ function buildTfRow(){
     const b=document.createElement("button");
     b.className="tf"; b.textContent=lab;
     b.setAttribute("aria-pressed", val===tf);
-    b.onclick=()=>{ tf=val; buildTfRow(); loadKlines(); render.chart(); };
+    b.onclick=()=>{ tf=val; savePrefs(); buildTfRow(); loadKlines(); render.chart(); render.analysis(); };
+    row.appendChild(b);
+  }
+}
+const IND_DEFS=[["ema9","EMA 9","#58C7E0"],["ema25","EMA 25","#F5A623"],
+  ["ema50","EMA 50","#C084FC"],["ema100","EMA 100","#8A93A6"],
+  ["ema200","EMA 200","#E8EAF0"],["vol","Volume","#8A93A6"],
+  ["rsi","RSI","#58C7E0"],["walls","Murs","#F5A623"],["targets","TP/SL","#2FBF71"]];
+function buildIndRow(){
+  const row=$("indrow"); row.innerHTML="";
+  for (const [key,lab,col] of IND_DEFS){
+    const b=document.createElement("button");
+    b.className="ind"; b.setAttribute("aria-pressed", !!show[key]);
+    b.title=show[key] ? "Masquer" : "Afficher";
+    b.innerHTML=`<i style="background:${col}"></i>${lab}`;
+    b.onclick=()=>{ show[key]=!show[key]; savePrefs(); buildIndRow(); render.chart(); };
     row.appendChild(b);
   }
 }
@@ -669,7 +712,7 @@ async function loadKlines(){
       if (!r.ok) throw new Error("HTTP "+r.status);
       const d=await r.json();
       if (kl.seq!==mySeq) return;              // la sélection a changé entre-temps
-      kl.dec=Math.max(...d.slice(-3).map(k=>decOf(String(k[4]))),0);
+      kl.dec=Math.max(...d.slice(-10).map(k=>decOfTrim(k[4])),0);
       kl.candles=d.map(k=>({t:+k[0], o:+k[1], h:+k[2], l:+k[3], c:+k[4], v:+k[5]}));
       kl.loading=false; connectKlineWS(); render.chart(); return;
     } catch(e){ /* essayer la base suivante */ }
@@ -723,6 +766,21 @@ function rsiLast(closes, period=14){       // RSI de Wilder, dernière valeur
   }
   return l===0 ? 100 : 100-100/(1+g/l);
 }
+function rsiSeries(closes, period=14){     // série RSI complète pour le sous-graphique
+  if (closes.length < period+1) return null;
+  const out=new Array(closes.length).fill(null);
+  let g=0,l=0;
+  for (let i=1;i<=period;i++){ const d=closes[i]-closes[i-1]; d>=0 ? g+=d : l-=d; }
+  g/=period; l/=period;
+  out[period]= l===0 ? 100 : 100-100/(1+g/l);
+  for (let i=period+1;i<closes.length;i++){
+    const d=closes[i]-closes[i-1];
+    g=(g*(period-1)+Math.max(d,0))/period;
+    l=(l*(period-1)+Math.max(-d,0))/period;
+    out[i]= l===0 ? 100 : 100-100/(1+g/l);
+  }
+  return out;
+}
 function atrLast(cs, period=14){           // ATR simple (moyenne des True Ranges)
   if (cs.length < period+1) return null;
   let s=0;
@@ -730,17 +788,24 @@ function atrLast(cs, period=14){           // ATR simple (moyenne des True Range
     s+=Math.max(cs[i].h-cs[i].l, Math.abs(cs[i].h-cs[i-1].c), Math.abs(cs[i].l-cs[i-1].c));
   return s/period;
 }
-function findWalls(book, n=25){            // plus gros niveau posé de chaque côté (mur si ≫ médiane)
-  const scan=side=>{
-    const lv=book.top(side,n); if (lv.length<5) return null;
-    const med=[...lv.map(l=>l[1])].sort((a,b)=>a-b)[lv.length>>1]||0;
-    let best=null; for (const [p,q] of lv) if (!best || q>best.qty) best={price:p, qty:q};
-    return best ? {...best, ratio: med>0 ? best.qty/med : 0} : null;
-  };
-  return {bid:scan("b"), ask:scan("a")};
+function findWall(book, side, ref=0, minDist=0){
+  // Un « mur » = un niveau nettement au-dessus du lot : ≥ 4× le niveau moyen
+  // ET ≥ 6 % du côté scanné (la médiane est inutilisable : les carnets réels
+  // sont remplis de niveaux-poussière). minDist écarte les niveaux collés au
+  // prix pour obtenir des supports/résistances exploitables.
+  const lv=book.top(side,50); if (lv.length<10) return null;
+  const total=lv.reduce((s,l)=>s+l[1],0), avg=total/lv.length;
+  if (!(avg>0)) return null;
+  let best=null;
+  for (const [p,q] of lv){
+    if (minDist && Math.abs(p-ref)<minDist) continue;
+    if (!best || q>best.qty) best={price:p, qty:q};
+  }
+  if (!best) return null;
+  best.strength=best.qty/avg; best.share=best.qty/total;
+  return (best.strength>=4 && best.share>=0.06) ? best : null;
 }
-const WALL_MIN_RATIO=3;                    // un « mur » = au moins 3× la taille médiane des niveaux
-const wallOK=w=>!!w && w.ratio>=WALL_MIN_RATIO;
+function findWalls(book){ return {bid:findWall(book,"b"), ask:findWall(book,"a")}; }
 
 /* ================= analyse & recommandation par horizon ================= */
 function analyze(){
@@ -787,14 +852,18 @@ function analyze(){
   const side = score>=2 ? "LONG" : score<=-2 ? "SHORT" : "NEUTRE";
   let tp=null, sl=null, sup=null, res=null;
   if (atr!=null){
-    sup = wallOK(walls.bid) ? walls.bid.price : last-2*atr;
-    res = wallOK(walls.ask) ? walls.ask.price : last+2*atr;
+    // supports/résistances : murs à distance utile du prix (≥ 0,3×ATR et ≥ 5 bp)
+    const minD=Math.max(atr*0.3, last*0.0005);
+    const supW=book.ready ? findWall(book,"b",last,minD) : null;
+    const resW=book.ready ? findWall(book,"a",last,minD) : null;
+    sup = supW ? supW.price : last-2*atr;
+    res = resW ? resW.price : last+2*atr;
     if (side==="LONG"){
-      tp = wallOK(walls.ask) && walls.ask.price>last+0.5*atr ? walls.ask.price : last+2*atr;
-      sl = wallOK(walls.bid) && walls.bid.price<last ? walls.bid.price-0.25*atr : last-1.5*atr;
+      tp = resW ? resW.price : last+2*atr;
+      sl = supW ? supW.price-0.25*atr : last-1.5*atr;
     } else if (side==="SHORT"){
-      tp = wallOK(walls.bid) && walls.bid.price<last-0.5*atr ? walls.bid.price : last-2*atr;
-      sl = wallOK(walls.ask) && walls.ask.price>last ? walls.ask.price+0.25*atr : last+1.5*atr;
+      tp = supW ? supW.price : last-2*atr;
+      sl = resW ? resW.price+0.25*atr : last+1.5*atr;
     }
   }
   const rr = tp!=null && sl!=null && Math.abs(last-sl)>1e-12 ? Math.abs(tp-last)/Math.abs(last-sl) : null;
@@ -923,7 +992,10 @@ const render = {
     if (kl.candles.length<2){ $("chart-extra").textContent=""; return render._msg(ctx,"Historique en construction…"); }
     const all=kl.candles, vis=all.slice(-kl.view), n=vis.length, dec=kl.dec;
     const padL=10, padR=74, padT=14, padB=18, iw=W-padL-padR, ih=H-padT-padB;
-    const volH=Math.round(ih*0.16), ch=ih-volH-8;   // zone prix au-dessus, volumes en bas
+    // empilement : prix, puis volumes, puis RSI — chaque panneau est optionnel
+    const volH=show.vol?Math.round(ih*0.13):0, rsiH=show.rsi?Math.round(ih*0.17):0;
+    const ch=ih-volH-rsiH-(volH?6:0)-(rsiH?8:0);
+    const volBot=padT+ch+(volH?6:0)+volH, rsiTop=padT+ih-rsiH;
     let lo=Infinity, hi=-Infinity, maxV=0;
     for (const c of vis){ if (c.l<lo) lo=c.l; if (c.h>hi) hi=c.h; if (c.v>maxV) maxV=c.v; }
     if (hi===lo){ hi+=hi*1e-6||1e-9; lo-=lo*1e-6||1e-9; }
@@ -941,15 +1013,16 @@ const render = {
       ctx.beginPath(); ctx.moveTo(x,Y(c.h)); ctx.lineTo(x,Y(c.l)); ctx.stroke();
       const yo=Y(c.o), yc=Y(c.c);
       ctx.fillStyle=col; ctx.fillRect(x-bw/2, Math.min(yo,yc), bw, Math.max(1, Math.abs(yc-yo)));
-      if (maxV>0){
+      if (show.vol && maxV>0){
         const vh=volH*(c.v/maxV);
-        ctx.globalAlpha=.45; ctx.fillRect(x-bw/2, padT+ih-vh, bw, vh); ctx.globalAlpha=1;
+        ctx.globalAlpha=.45; ctx.fillRect(x-bw/2, volBot-vh, bw, vh); ctx.globalAlpha=1;
       }
     }
-    // EMA 9/25/50/100/200
+    // EMA 9/25/50/100/200 (filtrables)
     const closesAll=all.map(c=>c.c), off=all.length-n;
     ctx.lineWidth=1.1; ctx.globalAlpha=.9;
     for (const per of EMA_PERIODS){
+      if (!show["ema"+per]) continue;
       const s=emaSeries(closesAll,per); if (!s) continue;
       ctx.strokeStyle=EMA_COLORS[per]; ctx.beginPath();
       let started=false;
@@ -964,11 +1037,34 @@ const render = {
     ctx.font="10px IBM Plex Mono";
     let lx=padL+4;
     for (const per of EMA_PERIODS){
+      if (!show["ema"+per]) continue;
       ctx.fillStyle=EMA_COLORS[per];
       ctx.fillText("EMA"+per, lx, padT+2);
       lx+=ctx.measureText("EMA"+per).width+10;
     }
     ctx.font="11px IBM Plex Mono";
+    // sous-graphique RSI 14
+    if (show.rsi){
+      const rs=rsiSeries(closesAll);
+      const Yr=v=>rsiTop+rsiH*(1-v/100);
+      ctx.strokeStyle="rgba(29,35,46,.9)"; ctx.strokeRect(padL+.5, rsiTop+.5, iw-1, rsiH-1);
+      ctx.fillStyle="rgba(88,199,224,.05)"; ctx.fillRect(padL, Yr(70), iw, Yr(30)-Yr(70));
+      ctx.save(); ctx.setLineDash([3,4]); ctx.strokeStyle="rgba(138,147,166,.3)";
+      for (const g of [30,70]){ ctx.beginPath(); ctx.moveTo(padL,Yr(g)); ctx.lineTo(padL+iw,Yr(g)); ctx.stroke(); }
+      ctx.restore();
+      if (rs){
+        ctx.strokeStyle="#58C7E0"; ctx.lineWidth=1.1; ctx.beginPath();
+        let st=false;
+        for (let i=0;i<n;i++){ const v=rs[off+i]; if (v==null) continue;
+          st ? ctx.lineTo(Xc(i),Yr(v)) : (ctx.moveTo(Xc(i),Yr(v)), st=true); }
+        ctx.stroke(); ctx.lineWidth=1;
+        const lastR=rs.at(-1);
+        if (lastR!=null){ ctx.fillStyle="#58C7E0"; ctx.fillText("RSI "+lastR.toFixed(0), W-padR+8, Yr(Math.min(Math.max(lastR,10),90))); }
+      }
+      ctx.fillStyle="#535D70"; ctx.font="10px IBM Plex Mono";
+      ctx.fillText("RSI 14 · 30/70", padL+4, rsiTop+8);
+      ctx.font="11px IBM Plex Mono";
+    }
     // axe temps
     ctx.fillStyle="#535D70"; ctx.textBaseline="alphabetic";
     const short=["1m","5m","15m","30m","1h"].includes(tf);
@@ -999,14 +1095,28 @@ const render = {
       ctx.closePath(); ctx.fill();
     }
     // murs de liquidité du carnet, projetés sur le graphique
-    if (p.book.ready){
+    if (show.walls && p.book.ready){
       const walls=findWalls(p.book);
       for (const [w,col,lab] of [[walls.bid,"#2FBF71","mur bid"],[walls.ask,"#F0544F","mur ask"]]){
-        if (!wallOK(w) || w.price<lo || w.price>hi) continue;
+        if (!w || w.price<lo || w.price>hi) continue;
         const y=Y(w.price);
         ctx.save(); ctx.setLineDash([6,4]); ctx.globalAlpha=.55; ctx.strokeStyle=col;
         ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke(); ctx.restore(); ctx.globalAlpha=1;
         ctx.fillStyle=col; ctx.fillText(`${lab} ${fmt(w.qty,p.book.qtyDec)}`, padL+4, y-8);
+      }
+    }
+    // objectifs TP/SL du signal courant
+    if (show.targets){
+      const a=analyze();
+      if (a && a.side!=="NEUTRE"){
+        for (const [v,tcol,lab] of [[a.tp,"#2FBF71","TP"],[a.sl,"#F0544F","SL"]]){
+          if (v==null || v<lo || v>hi) continue;
+          const y=Y(v);
+          ctx.save(); ctx.setLineDash([2,4]); ctx.strokeStyle=tcol;
+          ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke(); ctx.restore();
+          ctx.fillStyle=tcol; const t2=`${lab} ${fmt(v,dec)}`;
+          ctx.fillText(t2, W-padR-ctx.measureText(t2).width-6, y-7);
+        }
       }
     }
     // dernier cours : ligne pointillée + étiquette
@@ -1040,50 +1150,88 @@ const render = {
     if (p.state==="ERROR") return render._msg(ctx,"Paire indisponible.");
     const hs=p.heat;
     if (hs.length<2) return render._msg(ctx,"Carte en construction — échantillonnage du carnet (1/s)…");
-    const padL=10, padR=74, padT=10, padB=18, iw=W-padL-padR, ih=H-padT-padB;
+    const padL=10, padR=96, padT=10, padB=18, iw=W-padL-padR, ih=H-padT-padB;
     const t0=hs[0].t, t1=hs.at(-1).t;
     let mLo=Infinity, mHi=-Infinity;
     for (const s of hs){ if (s.mid<mLo) mLo=s.mid; if (s.mid>mHi) mHi=s.mid; }
     // bande verticale : l'amplitude du mid + une marge, jamais moins de ~12 bp
     const band=Math.max((mHi-mLo)*0.6, mHi*0.0012, 1e-9);
     const lo=mLo-band, hi=mHi+band;
-    let maxQ=0;
-    for (const s of hs){
-      for (const [pr,q] of s.b) if (pr>=lo && q>maxQ) maxQ=q;
-      for (const [pr,q] of s.a) if (pr<=hi && q>maxQ) maxQ=q;
-    }
-    if (!(maxQ>0)) return render._msg(ctx,"Carte en construction…");
     const X=t=>padL+iw*(t-t0)/Math.max(1,t1-t0), Y=v=>padT+ih*(1-(v-lo)/(hi-lo));
-    const cw=Math.max(1, iw/Math.max(1,hs.length-1))+0.5, rh=Math.max(1.5, ih*0.008);
-    const denom=Math.log1p(maxQ);
+    const BIN=2, colW=Math.max(1, iw/Math.max(1,hs.length-1))+0.5;
+    // passe 1 — agrégation en grille (colonne temps × case de 2 px de prix) :
+    // les niveaux proches fusionnent en zones continues au lieu de traits isolés
+    const cols=[], values=[];
     for (const s of hs){
-      const x=X(s.t)-cw/2;
-      for (const [pr,q] of s.b){ if (pr<lo) continue;
-        ctx.fillStyle=`rgba(47,191,113,${(0.08+0.9*Math.log1p(q)/denom).toFixed(3)})`;
-        ctx.fillRect(x, Y(pr)-rh/2, cw, rh); }
-      for (const [pr,q] of s.a){ if (pr>hi) continue;
-        ctx.fillStyle=`rgba(240,84,79,${(0.08+0.9*Math.log1p(q)/denom).toFixed(3)})`;
-        ctx.fillRect(x, Y(pr)-rh/2, cw, rh); }
+      const b=new Map(), a=new Map();
+      for (const [pr,q] of s.b){ if (pr<lo||pr>hi) continue; const k=Math.round(Y(pr)/BIN); b.set(k,(b.get(k)||0)+q); }
+      for (const [pr,q] of s.a){ if (pr<lo||pr>hi) continue; const k=Math.round(Y(pr)/BIN); a.set(k,(a.get(k)||0)+q); }
+      for (const v of b.values()) values.push(v);
+      for (const v of a.values()) values.push(v);
+      cols.push({t:s.t, x:X(s.t)-colW/2, b, a});
+    }
+    if (!values.length) return render._msg(ctx,"Carte en construction…");
+    // passe 2 — échelle au 95e percentile + gamma : les murs saturent
+    // sans écraser la liquidité ordinaire
+    values.sort((x,y)=>x-y);
+    const p95=values[Math.floor(values.length*0.95)] || values[values.length-1] || 1;
+    const ramp=v=>Math.min(1, Math.pow(v/p95, 0.6));
+    for (const c of cols){
+      for (const [k,v] of c.b){ const al=0.05+0.95*ramp(v);
+        ctx.fillStyle=`rgba(47,191,113,${al.toFixed(3)})`; ctx.fillRect(c.x, k*BIN-1, colW, BIN);
+        if (al>0.85){ ctx.fillStyle="rgba(255,255,255,.10)"; ctx.fillRect(c.x, k*BIN-1, colW, 1); } }
+      for (const [k,v] of c.a){ const al=0.05+0.95*ramp(v);
+        ctx.fillStyle=`rgba(240,84,79,${al.toFixed(3)})`; ctx.fillRect(c.x, k*BIN-1, colW, BIN);
+        if (al>0.85){ ctx.fillStyle="rgba(255,255,255,.10)"; ctx.fillRect(c.x, k*BIN-1, colW, 1); } }
     }
     // ligne du mid
     ctx.beginPath(); hs.forEach((s,i)=> i?ctx.lineTo(X(s.t),Y(s.mid)):ctx.moveTo(X(s.t),Y(s.mid)));
     ctx.strokeStyle="rgba(232,234,240,.85)"; ctx.lineWidth=1.2; ctx.stroke();
+    // zones de liquidité actuelles : plus gros mur de chaque côté, étiqueté
+    ctx.font="10px IBM Plex Mono"; ctx.textBaseline="middle";
+    if (p.book.ready){
+      const walls=findWalls(p.book);
+      for (const [w,col,rgb,lab,above] of [[walls.bid,"#2FBF71","47,191,113","ZONE LONG · support",false],
+                                           [walls.ask,"#F0544F","240,84,79","ZONE SHORT · résistance",true]]){
+        if (!w || w.price<lo || w.price>hi) continue;
+        const y=Y(w.price);
+        ctx.fillStyle=`rgba(${rgb},.10)`; ctx.fillRect(padL, y-5, iw, 10);
+        ctx.save(); ctx.setLineDash([6,4]); ctx.strokeStyle=col;
+        ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke(); ctx.restore();
+        const txt=`${lab} · ${fmt(w.qty,p.book.qtyDec)} @ ${fmt(w.price,p.book.priceDec)}`;
+        const ty2=above ? y-10 : y+10;
+        ctx.fillStyle="rgba(11,14,19,.78)"; ctx.fillRect(padL+2, ty2-7, ctx.measureText(txt).width+10, 14);
+        ctx.fillStyle=col; ctx.fillText(txt, padL+7, ty2);
+      }
+    }
     // axes
-    ctx.font="11px IBM Plex Mono"; ctx.textBaseline="middle"; const dec=p.book.priceDec;
+    ctx.font="11px IBM Plex Mono"; const dec=p.book.priceDec;
     for (let g=0; g<=3; g++){ const v=lo+(hi-lo)*g/3;
-      ctx.fillStyle="#8A93A6"; ctx.fillText(fmt(v,dec), W-padR+8, Y(v)); }
+      ctx.fillStyle="#8A93A6"; ctx.fillText(fmt(v,dec), W-padR+6, Y(v)); }
     const mNow=hs.at(-1).mid, ty=Y(mNow), tag=fmt(mNow,dec), tw=ctx.measureText(tag).width+10;
     ctx.fillStyle="#0B0E13"; ctx.strokeStyle="#E8EAF0";
     ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(W-padR+4,ty-9,tw,18,4); else ctx.rect(W-padR+4,ty-9,tw,18);
+    if (ctx.roundRect) ctx.roundRect(W-padR+2,ty-9,tw,18,4); else ctx.rect(W-padR+2,ty-9,tw,18);
     ctx.fill(); ctx.stroke();
-    ctx.fillStyle="#E8EAF0"; ctx.fillText(tag, W-padR+9, ty);
+    ctx.fillStyle="#E8EAF0"; ctx.fillText(tag, W-padR+7, ty);
     ctx.fillStyle="#535D70"; ctx.textBaseline="alphabetic";
     const ftt=ts=>new Date(ts).toLocaleTimeString("fr-FR");
     ctx.fillText(ftt(t0), padL, H-4);
-    const w1=ctx.measureText(ftt(t1)).width; ctx.fillText(ftt(t1), W-padR-w1, H-4);
-    $("heat-extra").textContent=
-      `${p.symbol} · ${Math.round((t1-t0)/1000)} s · ${HEAT_LEVELS} niveaux/côté · plus gros mur ${fmt(maxQ,p.book.qtyDec)}`;
+    const w1=ctx.measureText(ftt(t1)).width; ctx.fillText(ftt(t1), W-padR-w1-4, H-4);
+    ctx.textBaseline="middle";
+    // survol : heure · prix · quantité posée dans la case
+    let extraTxt=`${p.symbol} · fenêtre ${Math.round((t1-t0)/1000)} s · ${HEAT_LEVELS} niveaux/côté`;
+    if (heatHover && heatHover.x>=padL && heatHover.x<=padL+iw && heatHover.y>=padT && heatHover.y<=padT+ih){
+      const idx=Math.min(cols.length-1, Math.max(0, Math.round((heatHover.x-padL)/iw*(cols.length-1))));
+      const price=lo+(hi-lo)*(1-(heatHover.y-padT)/ih);
+      const k=Math.round(heatHover.y/BIN);
+      const q=(cols[idx].b.get(k)||0)+(cols[idx].a.get(k)||0);
+      ctx.strokeStyle="rgba(138,147,166,.45)";
+      ctx.beginPath(); ctx.moveTo(cols[idx].x+colW/2,padT); ctx.lineTo(cols[idx].x+colW/2,padT+ih); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(padL,heatHover.y); ctx.lineTo(padL+iw,heatHover.y); ctx.stroke();
+      extraTxt=`${ftt(cols[idx].t)} · ${fmt(price,dec)} · posé ${fmt(q,p.book.qtyDec)}`;
+    }
+    $("heat-extra").textContent=extraTxt;
   },
   ticket(){
     const p=focused(), b=p.book, otype=$("otype").value;
@@ -1211,30 +1359,35 @@ const render = {
     const dec=kl.dec, qdec=p.book.qtyDec;
     const cls=a.side==="LONG"?"long":a.side==="SHORT"?"short":"flat";
     const label=a.side==="LONG"?"ACHETER · LONG":a.side==="SHORT"?"VENDRE · SHORT":"NEUTRE · ATTENDRE";
+    const strength=Math.abs(a.score)>=3.5?"fort":Math.abs(a.score)>=2?"modéré":"faible";
+    const phrase=a.side==="LONG"?`signal haussier ${strength}`:a.side==="SHORT"?`signal baissier ${strength}`:"pas de signal net";
     const fs=v=>(v>0?"+":v<0?"−":"")+String(Math.abs(v)).replace(".",",");
     const emaTxt=EMA_PERIODS.map(per=>{
       const v=a.emas[per];
       if (v==null) return `<span class="muted">EMA${per} —</span>`;
       return `<span class="${a.above[per]?"up":"down"}">EMA${per} ${a.above[per]?"↑":"↓"} ${fmt(v,dec)}</span>`;
     }).join(" · ");
-    const wallTxt=w=>wallOK(w) ? `<b>${fmt(w.qty,qdec)}</b> @ <b>${fmt(w.price,dec)}</b> (×${w.ratio.toFixed(0)} la médiane)` : "aucun mur net";
+    const wallTxt=w=>w ? `<b>${fmt(w.qty,qdec)}</b> @ <b>${fmt(w.price,dec)}</b>` : "aucun mur net";
     const targets = a.side==="NEUTRE"
-      ? `Zone de travail : support <b>${fmt(a.sup,dec)}</b> · résistance <b>${fmt(a.res,dec)}</b> — attendre une cassure ou un signal plus net.`
-      : `Entrée ~ <b>${fmt(a.last,dec)}</b> · objectif TP <b class="${a.side==="LONG"?"up":"down"}">${fmt(a.tp,dec)}</b> · stop suggéré <b>${fmt(a.sl,dec)}</b> · R/R <b>${a.rr!=null?a.rr.toFixed(2):"—"}</b>`;
+      ? `Support <b>${fmt(a.sup,dec)}</b> · résistance <b>${fmt(a.res,dec)}</b> — attendre une cassure ou un signal plus net.`
+      : `Entrée ~ <b>${fmt(a.last,dec)}</b> · TP <b class="${a.side==="LONG"?"up":"down"}">${fmt(a.tp,dec)}</b> · stop <b>${fmt(a.sl,dec)}</b> · R/R <b>${a.rr!=null?a.rr.toFixed(2):"—"}</b>`;
     box.innerHTML=
       `<div class="reco"><span class="badge ${cls}">${label}</span>`+
-      `<span class="why">score <b>${fs(a.score)}</b> / ±${String(a.maxScore).replace(".",",")} sur ${tf} — carnet d'ordres + technique combinés</span></div>`+
-      `<div class="cells">`+
-        `<span>RSI 14 <b>${a.rsi!=null?a.rsi.toFixed(0):"—"}</b></span>`+
-        `<span>ATR 14 <b>${fmt(a.atr,dec)}</b></span>`+
-        `<span>volume <b>${a.volX!=null?"×"+a.volX.toFixed(1):"—"}</b> vs moy. 20</span>`+
-        `<span>imbalance <b>${a.imb!=null?(a.imb*100).toFixed(0)+" %":"—"}</b> bids</span>`+
-      `</div>`+
-      `<div class="cells">${emaTxt}</div>`+
-      `<div class="targets">Zone de liquidité : mur bid ${wallTxt(a.walls.bid)} · mur ask ${wallTxt(a.walls.ask)}</div>`+
+      `<span class="why">${phrase} sur ${tf} · score ${fs(a.score)} / ±${String(a.maxScore).replace(".",",")}</span></div>`+
       `<div class="targets">${targets}</div>`+
-      `<ul>${a.reasons.map(r=>`<li><span class="w">${r[0]}</span>${r[1]}</li>`).join("")}</ul>`+
-      `<div class="disc">Signal calculé automatiquement (EMA, RSI, volume, imbalance, murs du carnet) à but pédagogique — ce n'est pas un conseil en investissement.</div>`;
+      `<details id="anadet"${anaOpen?" open":""}><summary>Détails du calcul (RSI, EMA, volume, carnet, murs)</summary>`+
+        `<div class="cells">`+
+          `<span>RSI 14 <b>${a.rsi!=null?a.rsi.toFixed(0):"—"}</b></span>`+
+          `<span>ATR 14 <b>${fmt(a.atr,dec)}</b></span>`+
+          `<span>volume <b>${a.volX!=null?"×"+a.volX.toFixed(1):"—"}</b> vs moy. 20</span>`+
+          `<span>imbalance <b>${a.imb!=null?(a.imb*100).toFixed(0)+" %":"—"}</b> bids</span>`+
+        `</div>`+
+        `<div class="cells">${emaTxt}</div>`+
+        `<div class="targets">Murs : bid ${wallTxt(a.walls.bid)} · ask ${wallTxt(a.walls.ask)}</div>`+
+        `<ul>${a.reasons.map(r=>`<li><span class="w">${r[0]}</span>${r[1]}</li>`).join("")}</ul>`+
+      `</details>`+
+      `<div class="disc">Signal automatique pédagogique — pas un conseil en investissement.</div>`;
+    const det=$("anadet"); det.ontoggle=()=>{ anaOpen=det.open; };
   },
   all(full){
     render.ladder(); render.chart(); render.heat(); render.analysis(); render.ticket(); render.folio();
@@ -1342,6 +1495,12 @@ $("chart").addEventListener("mousemove", e=>{
   render.chart();
 });
 $("chart").addEventListener("mouseleave", ()=>{ kl.hover=null; if (tf!=="LIVE") render.chart(); });
+$("heat").addEventListener("mousemove", e=>{
+  const r=e.target.getBoundingClientRect();
+  heatHover={x:e.clientX-r.left, y:e.clientY-r.top};
+  render.heat();
+});
+$("heat").addEventListener("mouseleave", ()=>{ heatHover=null; render.heat(); });
 $("chartwrap").addEventListener("wheel", e=>{
   if (tf==="LIVE") return;
   e.preventDefault();
@@ -1352,7 +1511,8 @@ $("chartwrap").addEventListener("wheel", e=>{
 /* ================= démarrage ================= */
 (async function(){
   await paper.load();
-  buildTfRow();
+  loadPrefs();
+  buildTfRow(); buildIndRow();
   render.tabs(); render.all(false);
   connectWS();
   loadKlines();
