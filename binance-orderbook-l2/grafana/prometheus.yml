@@ -1,0 +1,7 @@
+# Exemple minimal : scrape du moteur toutes les 5 s.
+# Lancer :  prometheus --config.file=grafana/prometheus.yml
+scrape_configs:
+  - job_name: lob
+    scrape_interval: 5s
+    static_configs:
+      - targets: ["127.0.0.1:9109"]

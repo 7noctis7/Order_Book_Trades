@@ -1,0 +1,4 @@
+websockets>=12.0
+requests>=2.31
+sortedcontainers>=2.4
+PyYAML>=6.0

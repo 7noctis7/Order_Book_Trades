@@ -1,0 +1,57 @@
+# ============================================================================
+# Binance L2 Order Book Reconstructor — configuration
+# Toutes les valeurs métier sont ici : rien n'est codé en dur dans le code.
+# ============================================================================
+
+exchange: binance            # seul "binance" est implémenté à ce jour
+symbols:                     # paires suivies simultanément (une pile isolée par paire)
+  - BTCUSDT
+  - ETHUSDT
+  - SOLUSDT
+  - NEARUSDT
+  - HYPEUSDT                 # si absente du spot Binance.com : paire marquée ERREUR, les autres continuent
+  - ONDOUSDT
+  - RENDERUSDT
+depth_limit: 100             # profondeur du snapshot REST (5,10,20,50,100,500,1000,5000)
+ws_speed_ms: 100             # cadence du flux depth : 100 ou 1000 (ms)
+
+display:                     # mode "démo console"
+  enabled: true
+  refresh_seconds: 1.0       # période de rafraîchissement de l'affichage
+  levels: 8                  # niveaux affichés de chaque côté du carnet au focus
+  price_decimals: auto       # auto = déduit du tick réel de chaque paire (ou entier fixe)
+  qty_decimals: auto         # auto = déduit des quantités réelles (ou entier fixe)
+
+kraken:                      # utilisé si exchange: kraken (symbols en BTC/USD…)
+  ws_base: wss://ws.kraken.com/v2
+  depth: 100                 # 10 / 25 / 100 / 500 / 1000
+
+observability:
+  prometheus:
+    enabled: false           # expose http://host:port/metrics (format texte)
+    host: 127.0.0.1
+    port: 9109
+
+paper:                       # paper trading : ordres fictifs contre le carnet reconstruit
+  enabled: true
+  initial_cash_usdt: 10000   # capital de départ fictif
+  fee_bps: 10                # frais taker simulés (10 bp = 0,10 %, comme Binance Spot)
+  db_path: data/paper.db     # l'historique des trades survit aux redémarrages
+
+capture:                     # enregistrement brut des messages WebSocket (SQLite)
+  enabled: false             # désactivé par défaut (activable indépendamment du display)
+  db_path: data/capture.db   # un seul fichier, pas de rotation (choix assumé)
+
+network:
+  rest_timeout_seconds: 10.0
+  backoff_base_seconds: 1.0  # backoff exponentiel : base * 2^tentative (+ jitter)
+  backoff_max_seconds: 60.0
+  buffer_max_messages: 20000 # garde-fou pendant la phase de bufferisation
+
+binance:                     # endpoints (permet de basculer testnet / data-stream.binance.vision)
+  rest_base: https://api.binance.com
+  ws_base: wss://stream.binance.com:9443
+
+logging:
+  level: INFO                # DEBUG | INFO | WARNING | ERROR | CRITICAL
+  file: lob.log              # null => pas de fichier (console utilisée si display.enabled=false)
