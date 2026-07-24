@@ -1,6 +1,6 @@
-# Publie la version web autonome (lob-terminal.html) sur GitHub Pages via la
-# branche gh-pages : GitHub active Pages automatiquement pour cette branche,
-# aucun réglage manuel n'est nécessaire (dépôt public requis).
+# Déploie la version web autonome (lob-terminal.html) sur GitHub Pages.
+# Pages est configuré en source « GitHub Actions » (Settings → Pages) :
+# chaque push sur main publie l'app comme page d'accueil du site.
 # Site : https://7noctis7.github.io/Order_Book_Trades/
 name: deploy-pages
 
@@ -10,15 +10,20 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
-  publish:
+  deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -27,12 +32,12 @@ jobs:
           mkdir -p _site
           cp lob-terminal.html _site/index.html
 
-      - name: Publier sur la branche gh-pages
-        run: |
-          cd _site
-          git init -b gh-pages
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "Déploiement du site (${GITHUB_SHA})"
-          git push --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Déployer
+        id: deployment
+        uses: actions/deploy-pages@v4
