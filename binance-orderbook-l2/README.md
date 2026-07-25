@@ -210,6 +210,18 @@ quantité posée de chaque case. Le corps de la carte est mis en cache et
 n'est redessiné qu'à l'arrivée d'un échantillon : survol et
 rafraîchissements restent fluides.
 
+La colonne de gauche complète le tableau : **profondeur cumulée** (courbe
+en escalier bids/asks sur la même fenêtre ± 0,35 %, mid en pointillé),
+**bande des transactions** en direct (25 derniers trades colorés par
+agressivité — vert = acheteur au marché, rouge = vendeur — avec part
+acheteuse et delta de volume sur 60 s) et **alertes de prix** : saisir un
+prix pour la paire au focus, l'alerte se déclenche au franchissement
+(toast + notification navigateur si autorisée), même onglet en
+arrière-plan. Les **ordres fictifs en attente** sont aussi tracés sur le
+graphique en bougies (lignes or, filtre « Ordres »), et le rendu se met en
+pause quand l'onglet est caché — la collecte de données, les déclencheurs
+d'ordres et les alertes continuent, eux, de tourner.
+
 Chaque horizon est accompagné d'un module d'**analyse & recommandation**
 volontairement compact : badge **ACHETER/LONG · VENDRE/SHORT · NEUTRE**,
 phrase de synthèse avec score, et objectifs — entrée, take profit calé sur

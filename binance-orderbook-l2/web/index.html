@@ -54,6 +54,7 @@ header{display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:
 
 /* ============ grille ============ */
 main{display:grid;grid-template-columns:340px 1fr;gap:14px;padding:14px 16px}
+#leftcol{display:flex;flex-direction:column;gap:14px;min-width:0}
 section{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .sect-head{display:flex;align-items:baseline;gap:10px;padding:10px 14px 8px}
 .sect-head .eyebrow{color:var(--gold)}
@@ -98,6 +99,19 @@ section{background:var(--panel);border:1px solid var(--line);border-radius:10px;
 #heatwrap{position:relative;height:240px}
 #heat{width:100%;height:100%;display:block}
 #chart{cursor:crosshair}
+#depthwrap{position:relative;height:170px}
+#depth{width:100%;height:100%;display:block}
+#tape{font-family:var(--font-data);font-size:11.5px;max-height:230px;overflow-y:auto;padding:6px 14px;scrollbar-width:thin}
+.trow{display:grid;grid-template-columns:auto 1fr auto;gap:10px;padding:1.5px 0}
+.trow span:nth-child(1){color:var(--faint)}
+.trow span:nth-child(2){text-align:right}
+.trow span:nth-child(3){text-align:right;color:var(--muted);min-width:74px}
+#alerts{padding:10px 14px 12px}
+.alert-form{display:flex;gap:6px;margin-bottom:6px}
+#alertprice{flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:6px;color:var(--ink);font-family:var(--font-data);font-size:12.5px;padding:6px 9px;min-width:60px}
+#alertadd{font-size:11.5px;padding:5px 12px;color:var(--amber);border-color:var(--gold);white-space:nowrap}
+.alert-row{display:flex;align-items:center;gap:8px;font-family:var(--font-data);font-size:12px;padding:3px 0}
+.alert-row .cancel{margin-left:auto;font-size:10.5px;padding:2px 8px;color:var(--muted)}
 .grip{position:absolute;left:0;right:0;bottom:0;height:9px;cursor:ns-resize;z-index:2}
 .grip::after{content:"";display:block;width:46px;height:3px;margin:3px auto 0;border-radius:2px;background:var(--line)}
 .grip:hover::after{background:var(--gold)}
@@ -197,6 +211,7 @@ footer{padding:18px 16px 0;font-size:11px;color:var(--faint);line-height:1.6}
 <nav id="tabs" role="tablist" aria-label="Paires"></nav>
 
 <main>
+  <div id="leftcol">
   <section id="left">
     <div class="sect-head"><span class="eyebrow">Carnet d'ordres</span><span class="extra" id="ladder-extra"></span></div>
     <div class="seam"></div>
@@ -208,6 +223,27 @@ footer{padding:18px 16px 0;font-size:11px;color:var(--faint);line-height:1.6}
     </div>
     <div id="pairmeta"></div>
   </section>
+
+    <section>
+      <div class="sect-head"><span class="eyebrow">Profondeur cumulée</span><span class="extra" id="depth-extra"></span></div>
+      <div class="seam"></div>
+      <div id="depthwrap"><canvas id="depth"></canvas></div>
+    </section>
+
+    <section>
+      <div class="sect-head"><span class="eyebrow">Transactions</span><span class="extra" id="tape-extra"></span></div>
+      <div class="seam"></div>
+      <div id="tape"></div>
+      <div class="seam"></div>
+      <div id="alerts">
+        <div class="alert-form">
+          <input id="alertprice" inputmode="decimal" placeholder="prix d'alerte" aria-label="Prix d'alerte">
+          <button id="alertadd">+ Alerte</button>
+        </div>
+        <div id="alertlist"></div>
+      </div>
+    </section>
+  </div>
 
   <div id="right">
     <section>
@@ -430,7 +466,7 @@ class Pair {
   get rate(){ const cut=Date.now()-5000; this.msgTimes=this.msgTimes.filter(t=>t>cut); return this.msgTimes.length/5; }
 
   onTrade(d){
-    const t=[+d.T, parseFloat(d.p), parseFloat(d.q)];
+    const t=[+d.T, parseFloat(d.p), parseFloat(d.q), !!d.m];  // m : acheteur est maker → agresseur vendeur
     if (!isFinite(t[1])) return;
     this.tape.push(t);
     const cutoff=Date.now()-65000;
@@ -658,7 +694,7 @@ function setFocus(i){ focus=i; savePrefs(); loadKlines(); render.tabs(); render.
 /* ===== préférences d'affichage (persistées localement) ===== */
 const PREFS_KEY="lob-ui-prefs-v1";
 const show={ema9:true, ema25:true, ema50:true, ema100:true, ema200:true,
-            vol:true, rsi:true, walls:true, targets:true};
+            vol:true, rsi:true, walls:true, targets:true, orders:true};
 let anaOpen=false, heatHover=null;
 const heatCache={cv:null, key:"", cols:null};   // bitmap du corps de la heatmap
 const ui={chartH:null, heatH:null};             // hauteurs de panneaux (poignées)
@@ -676,6 +712,32 @@ function loadPrefs(){
   } catch {}
 }
 function savePrefs(){ try { localStorage.setItem(PREFS_KEY, JSON.stringify({show, tf, focus, ui})); } catch {} }
+
+/* ===== alertes de prix (persistées, déclenchées même onglet en arrière-plan) ===== */
+const ALERTS_KEY="lob-alerts-v1";
+let alerts=[], alertSeq=1;
+function loadAlerts(){
+  try {
+    const a=JSON.parse(localStorage.getItem(ALERTS_KEY)||"[]");
+    if (Array.isArray(a)) alerts=a.filter(x=>x && x.symbol && x.price>0);
+    alertSeq=alerts.reduce((m,x)=>Math.max(m,x.id||0),0)+1;
+  } catch {}
+}
+function saveAlerts(){ try { localStorage.setItem(ALERTS_KEY, JSON.stringify(alerts)); } catch {} }
+function checkAlerts(){
+  for (const al of [...alerts]){
+    const pr=bySym[al.symbol]; if (!pr) continue;
+    const cur=pr.lastTrade() ?? pr.book.mid(); if (cur==null) continue;
+    if ((al.dir==="above" && cur>=al.price) || (al.dir==="below" && cur<=al.price)){
+      alerts=alerts.filter(x=>x.id!==al.id); saveAlerts();
+      const dec=pr.book.priceDec;
+      const msg=`🔔 ${base(al.symbol)} a atteint ${fmt(al.price,dec)} (cours ${fmt(cur,dec)})`;
+      toast(msg);
+      try { if (window.Notification && Notification.permission==="granted") new Notification("LOB Terminal", {body:msg}); } catch {}
+      render.alerts();
+    }
+  }
+}
 
 /* ================= bougies (klines REST + flux @kline) ================= */
 let tf="1m";   // horizon affiché — "LIVE" = ligne tick par tick depuis l'ouverture
@@ -695,7 +757,8 @@ function buildTfRow(){
 const IND_DEFS=[["ema9","EMA 9","#58C7E0"],["ema25","EMA 25","#F5A623"],
   ["ema50","EMA 50","#C084FC"],["ema100","EMA 100","#8A93A6"],
   ["ema200","EMA 200","#E8EAF0"],["vol","Volume","#8A93A6"],
-  ["rsi","RSI","#58C7E0"],["walls","Murs","#F5A623"],["targets","TP/SL","#2FBF71"]];
+  ["rsi","RSI","#58C7E0"],["walls","Murs","#F5A623"],["targets","TP/SL","#2FBF71"],
+  ["orders","Ordres","#C8901A"]];
 function buildIndRow(){
   const row=$("indrow"); row.innerHTML="";
   for (const [key,lab,col] of IND_DEFS){
@@ -1153,6 +1216,19 @@ const render = {
         }
       }
     }
+    // ordres fictifs en attente (limite/stop), comme des lignes d'ordre TradingView
+    if (show.orders){
+      ctx.font="10px IBM Plex Mono";
+      for (const o of paper.orders){
+        if (o.symbol!==p.symbol || o.price<lo || o.price>hi) continue;
+        const y=Y(o.price), ocol="#C8901A";
+        ctx.save(); ctx.setLineDash([9,4]); ctx.strokeStyle=ocol; ctx.globalAlpha=.85;
+        ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke(); ctx.restore(); ctx.globalAlpha=1;
+        ctx.fillStyle=ocol;
+        ctx.fillText(`#${o.id} ${o.otype==="LIMIT"?"limite":"stop"} ${o.side==="BUY"?"achat":"vente"} ${fmt(o.qty,6)}`, padL+4, y+9);
+      }
+      ctx.font="11px IBM Plex Mono";
+    }
     // dernier cours : ligne pointillée + étiquette
     const lastC=vis.at(-1), last=lastC.c, ly=Y(Math.min(Math.max(last,lo),hi));
     ctx.save(); ctx.setLineDash([2,3]); ctx.strokeStyle="rgba(232,234,240,.45)";
@@ -1442,10 +1518,90 @@ const render = {
       `<div class="disc">Signal automatique pédagogique — pas un conseil en investissement.</div>`;
     const det=$("anadet"); det.ontoggle=()=>{ anaOpen=det.open; };
   },
+  depth(){
+    const p=focused(), cv=$("depth"), wrap=$("depthwrap");
+    const dpr=window.devicePixelRatio||1, W=wrap.clientWidth, H=wrap.clientHeight;
+    cv.width=W*dpr; cv.height=H*dpr;
+    const ctx=cv.getContext("2d"); ctx.scale(dpr,dpr); ctx.clearRect(0,0,W,H);
+    $("depth-extra").textContent=p.symbol;
+    if (p.state==="ERROR") return render._msg(ctx,"Paire indisponible.");
+    const book=p.book, mid=book.mid();
+    if (!book.ready || mid==null) return render._msg(ctx,"En attente du carnet…");
+    const padL=8, padR=8, padT=16, padB=16, iw=W-padL-padR, ih=H-padT-padB;
+    const win=mid*HEAT_PCT, lo=mid-win, hi=mid+win;
+    const X=v=>padL+iw*(v-lo)/(hi-lo);
+    // cumuls : bids du mid vers la gauche, asks du mid vers la droite
+    const cum=(keys,map,isBid)=>{
+      const pts=[]; let c=0;
+      for (const k of keys){ const pr=+k;
+        if (isBid ? pr<lo : pr>hi) break;
+        c+=map.get(k); pts.push([pr,c]); }
+      return pts;
+    };
+    const bids=cum(book.bidKeys, book.bids, true), asks=cum(book.askKeys, book.asks, false);
+    const maxC=Math.max(bids.at(-1)?.[1]||0, asks.at(-1)?.[1]||0);
+    if (!(maxC>0)) return render._msg(ctx,"En attente du carnet…");
+    const Yq=c=>padT+ih*(1-c/maxC);
+    const area=(pts,color,dim)=>{
+      if (!pts.length) return;
+      ctx.beginPath(); ctx.moveTo(X(pts[0][0]), Yq(0));
+      let py=Yq(0);
+      for (const [pr,c] of pts){ ctx.lineTo(X(pr), py); py=Yq(c); ctx.lineTo(X(pr), py); }
+      ctx.lineTo(X(pts.at(-1)[0]), Yq(0));
+      ctx.closePath(); ctx.fillStyle=dim; ctx.fill();
+      ctx.beginPath(); py=Yq(0);
+      for (const [pr,c] of pts){ ctx.lineTo(X(pr), py); py=Yq(c); ctx.lineTo(X(pr), py); }
+      ctx.strokeStyle=color; ctx.lineWidth=1.4; ctx.stroke(); ctx.lineWidth=1;
+    };
+    area(bids, "#2FBF71", "rgba(47,191,113,.14)");
+    area(asks, "#F0544F", "rgba(240,84,79,.14)");
+    // mid
+    ctx.save(); ctx.setLineDash([4,4]); ctx.strokeStyle="#F5A623";
+    ctx.beginPath(); ctx.moveTo(X(mid),padT-6); ctx.lineTo(X(mid),padT+ih); ctx.stroke(); ctx.restore();
+    ctx.font="10px IBM Plex Mono"; ctx.textBaseline="alphabetic"; ctx.fillStyle="#8A93A6";
+    const dec=book.priceDec;
+    ctx.fillText(fmt(lo,dec), padL, H-3);
+    const mtxt=fmt(mid,dec), htxt=fmt(hi,dec);
+    ctx.fillStyle="#F5A623"; ctx.fillText(mtxt, Math.min(Math.max(X(mid)-ctx.measureText(mtxt).width/2, padL), W-padR-ctx.measureText(mtxt).width), H-3);
+    ctx.fillStyle="#8A93A6"; ctx.fillText(htxt, W-padR-ctx.measureText(htxt).width, H-3);
+    ctx.fillText(`cumul max ${fmt(maxC, book.qtyDec)} · ±${(HEAT_PCT*100).toLocaleString("fr-FR")} %`, padL, padT-5);
+  },
+  tape(){
+    const p=focused(), box=$("tape");
+    const dec=p.book.priceDec, qdec=p.book.qtyDec;
+    const rows=p.tape.slice(-25).reverse();
+    if (!rows.length){
+      box.innerHTML=`<div class="muted" style="padding:6px 0;font-family:var(--font-ui)">En attente de transactions réelles…</div>`;
+      $("tape-extra").textContent=p.symbol; return;
+    }
+    box.innerHTML=rows.map(([ts,pr,q,m])=>
+      `<div class="trow"><span>${new Date(ts).toLocaleTimeString("fr-FR")}</span>`+
+      `<span class="${m?"down":"up"}">${fmt(pr,dec)}</span><span>${fmt(q,qdec)}</span></div>`).join("");
+    let bv=0, sv=0; const cut=Date.now()-60000;
+    for (const [ts,,q,m] of p.tape) if (ts>=cut){ m ? sv+=q : bv+=q; }
+    const tot=bv+sv;
+    $("tape-extra").textContent = tot>0
+      ? `60 s : ${(bv/tot*100).toFixed(0)} % achat · Δ ${bv-sv>=0?"+":""}${fmt(bv-sv,qdec)}`
+      : p.symbol;
+  },
+  alerts(){
+    const list=$("alertlist");
+    if (!alerts.length){ list.innerHTML=`<div class="muted" style="font-size:11.5px">Aucune alerte — saisir un prix pour la paire au focus.</div>`; return; }
+    list.innerHTML=alerts.map(a=>{
+      const dec=bySym[a.symbol]?.book.priceDec ?? 2;
+      return `<div class="alert-row"><span style="color:var(--amber)">🔔</span>`+
+        `<b>${base(a.symbol)}</b><span>${a.dir==="above"?"≥":"≤"} ${fmt(a.price,dec)}</span>`+
+        `<button class="cancel" data-id="${a.id}">Suppr.</button></div>`;
+    }).join("");
+    list.querySelectorAll(".cancel").forEach(b=>b.onclick=()=>{
+      alerts=alerts.filter(x=>x.id!==+b.dataset.id); saveAlerts(); render.alerts();
+    });
+  },
   all(full){
-    render.ladder(); render.chart(); render.heat(); render.analysis(); render.ticket(); render.folio();
+    render.ladder(); render.chart(); render.heat(); render.depth(); render.tape();
+    render.analysis(); render.ticket(); render.folio();
     render.orders(); render.stats();
-    if (full) render.tabs();
+    if (full){ render.tabs(); render.alerts(); }
   }
 };
 
@@ -1527,7 +1683,7 @@ setInterval(()=>{ // échantillonnage de l'historique (1 s)
   equitySamples.push({t:now, eq:paper.summary(mids).equity});
   if (equitySamples.length>HISTORY_MAX) equitySamples.shift();
 },1000);
-setInterval(()=>{ // déclencheurs des ordres en attente + rafraîchissement
+setInterval(()=>{ // déclencheurs des ordres + alertes ; rendu seulement si l'onglet est visible
   if (paper.orders.length){
     for (const p of pairs){
       if (!p.book.ready) continue;
@@ -1538,10 +1694,12 @@ setInterval(()=>{ // déclencheurs des ordres en attente + rafraîchissement
       }
     }
   }
-  render.all(false);
+  checkAlerts();
+  if (!document.hidden) render.all(false);
 }, 500);
-setInterval(render.tabs, 2000);            // onglets (mids + états)
-window.addEventListener("resize", ()=>{ render.chart(); render.heat(); });
+setInterval(()=>{ if (!document.hidden) render.tabs(); }, 2000);   // onglets (mids + états)
+document.addEventListener("visibilitychange", ()=>{ if (!document.hidden) render.all(true); });
+window.addEventListener("resize", ()=>{ render.chart(); render.heat(); render.depth(); });
 /* ===== interactions type TradingView : survol, glisser, zoom ancré, poignées ===== */
 let chartRaf=false, heatRaf=false, chartDrag=null;
 function chartRAF(){ if (chartRaf) return; chartRaf=true; requestAnimationFrame(()=>{ chartRaf=false; render.chart(); }); }
@@ -1603,13 +1761,25 @@ function makeGrip(gripId, wrapId, prefKey, min, max, redraw){
 }
 makeGrip("chartgrip","chartwrap","chartH",220,640,chartRAF);
 makeGrip("heatgrip","heatwrap","heatH",160,560,heatRAF);
+$("alertadd").onclick=()=>{
+  const p=focused(), v=parseFloat(($("alertprice").value||"").replace(",","."));
+  if (!(v>0)) return toast("Prix d'alerte invalide", true);
+  const cur=p.lastTrade() ?? p.book.mid();
+  if (cur==null) return toast("Attendre la synchronisation du carnet", true);
+  const dir=v>=cur ? "above" : "below";
+  alerts.push({id:alertSeq++, symbol:p.symbol, price:v, dir});
+  saveAlerts(); $("alertprice").value=""; render.alerts();
+  toast(`Alerte posée : ${base(p.symbol)} ${dir==="above"?"≥":"≤"} ${fmt(v,p.book.priceDec)}`);
+  try { if (window.Notification && Notification.permission==="default") Notification.requestPermission(); } catch {}
+};
+$("alertprice").addEventListener("keydown", e=>{ if (e.key==="Enter") $("alertadd").click(); });
 
 /* ================= démarrage ================= */
 (async function(){
   await paper.load();
-  loadPrefs();
+  loadPrefs(); loadAlerts();
   buildTfRow(); buildIndRow();
-  render.tabs(); render.all(false);
+  render.tabs(); render.alerts(); render.all(false);
   connectWS();
   loadKlines();
 })();
