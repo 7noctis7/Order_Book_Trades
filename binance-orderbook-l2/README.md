@@ -187,20 +187,28 @@ S'y ajoutent un **graphique en bougies temps réel avec historique** (500
 dernières bougies via l'API klines publique + flux WebSocket `@kline`) sur
 neuf horizons — `1m 5m 15m 30m 1h 4h D W M` (bouton `tick` pour revenir à la
 ligne tick par tick) — avec volumes, EMA 9/25/50/100/200 superposées,
-sous-graphique RSI 14 (bornes 30/70), molette pour zoomer, OHLCV au survol,
-marqueurs d'exécution, ligne d'entrée moyenne, murs de liquidité et
-objectifs TP/SL projetés sur les bougies. Une barre de **filtres** permet
+sous-graphique RSI 14 (bornes 30/70), marqueurs d'exécution, ligne d'entrée
+moyenne, murs de liquidité et objectifs TP/SL projetés sur les bougies.
+**Navigation type TradingView** : glisser pour parcourir l'historique,
+molette pour zoomer (ancré sur le curseur — le RSI et les EMA suivent la
+même fenêtre), double-clic pour revenir au direct, croix de visée avec
+OHLCV et prix au survol, et poignées pour redimensionner verticalement le
+graphique et la carte de liquidité. Une barre de **filtres** permet
 d'afficher ou masquer chaque indicateur individuellement (EMA ×5, volume,
-RSI, murs, TP/SL) ; horizon, paire et filtres choisis sont **mémorisés
-localement** d'une visite à l'autre.
+RSI, murs, TP/SL) ; horizon, paire, filtres et hauteurs de panneaux sont
+**mémorisés localement** d'une visite à l'autre.
 
-La **carte de liquidité** type Bookmap est agrégée en grille temps × prix
-(la profondeur du carnet — 40 niveaux par côté — est échantillonnée chaque
-seconde) avec une échelle au 95ᵉ percentile : les murs saturent en pleine
-couleur sans écraser la liquidité ordinaire. Le plus gros mur de chaque
-côté est étiqueté directement sur la carte — **ZONE LONG · support**
-(bids) et **ZONE SHORT · résistance** (asks) — et le survol affiche
-heure, prix et quantité posée de chaque case.
+La **carte de liquidité** type Bookmap est agrégée en grille temps × prix :
+le carnet est ramené chaque seconde à des paliers de prix sur une fenêtre
+de **mid ± 0,35 %** (indispensable sur les paires denses : les premiers
+niveaux de BTC ne couvrent que quelques dollars et s'écraseraient au mid),
+avec une échelle au 95ᵉ percentile — les murs saturent en pleine couleur
+sans écraser la liquidité ordinaire. Le plus gros mur de chaque côté est
+étiqueté directement sur la carte — **ZONE LONG · support** (bids) et
+**ZONE SHORT · résistance** (asks) — et le survol affiche heure, prix et
+quantité posée de chaque case. Le corps de la carte est mis en cache et
+n'est redessiné qu'à l'arrivée d'un échantillon : survol et
+rafraîchissements restent fluides.
 
 Chaque horizon est accompagné d'un module d'**analyse & recommandation**
 volontairement compact : badge **ACHETER/LONG · VENDRE/SHORT · NEUTRE**,
@@ -209,9 +217,11 @@ le mur opposé ou ±2×ATR, stop suggéré derrière le mur ou ±1,5×ATR, ratio
 risque/rendement. Tout le détail du calcul (RSI 14, ATR, volume relatif,
 imbalance sur 10 niveaux, EMA 9/25/50/100/200, murs, justification ligne
 par ligne) est replié derrière « Détails du calcul ». Un **mur** est un
-niveau ≥ 4× le niveau moyen représentant ≥ 6 % du côté scanné (les carnets
-réels étant remplis de niveaux-poussière, une médiane serait inutilisable) ;
-les supports/résistances retenus sont à distance utile du prix (≥ 0,3×ATR).
+palier de prix ≥ 3× le palier moyen représentant ≥ 4 % du côté scanné
+(fenêtre ± 0,35 %, agrégée — les carnets réels étant remplis de
+niveaux-poussière, une médiane niveau par niveau serait inutilisable), et
+toujours à **distance utile du prix** (≥ 8 bp, et ≥ 0,3×ATR pour les
+objectifs) : un « support » collé au meilleur bid n'en est pas un.
 Signaux indicatifs et pédagogiques — en aucun cas un conseil en
 investissement.
 
