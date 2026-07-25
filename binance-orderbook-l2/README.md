@@ -189,6 +189,12 @@ neuf horizons — `1m 5m 15m 30m 1h 4h D W M` (bouton `tick` pour revenir à la
 ligne tick par tick) — avec volumes, EMA 9/25/50/100/200 superposées,
 sous-graphique RSI 14 (bornes 30/70), marqueurs d'exécution, ligne d'entrée
 moyenne, murs de liquidité et objectifs TP/SL projetés sur les bougies.
+Les EMA suivent un **dégradé d'une seule teinte** — clair = période courte,
+foncé = période longue, EMA 200 plus épaisse — contraste et séparation
+daltonisme validés sur fond sombre ; le graphique reste sobre, les bougies
+restent l'information principale. Un bouton « ? » regroupe l'aide des
+gestes, et la recommandation s'accompagne d'une **jauge de score** visuelle
+(curseur du rouge au vert).
 **Navigation type TradingView** : glisser pour parcourir l'historique,
 molette pour zoomer (ancré sur le curseur — le RSI et les EMA suivent la
 même fenêtre), double-clic pour revenir au direct, croix de visée avec
