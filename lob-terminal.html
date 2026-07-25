@@ -49,8 +49,8 @@ header{display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:
 .tab{flex:0 0 auto;min-width:118px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel);text-align:left}
 .tab .sym{font-weight:600;font-size:13px;display:flex;align-items:center;gap:6px}
 .tab .mid{font-family:var(--font-data);font-size:12px;color:var(--muted);margin-top:2px}
-.tab[aria-selected="true"]{border-color:var(--amber);background:linear-gradient(180deg,rgba(245,166,35,.10),rgba(245,166,35,.02))}
-.tab.err{opacity:.55}
+.tab[aria-selected="true"]{border-color:var(--line);box-shadow:inset 0 -2px 0 var(--amber)}
+.tab.err{opacity:.5}
 
 /* ============ grille ============ */
 main{display:grid;grid-template-columns:340px 1fr;gap:14px;padding:14px 16px}
@@ -59,7 +59,7 @@ section{background:var(--panel);border:1px solid var(--line);border-radius:10px;
 .sect-head{display:flex;align-items:baseline;gap:10px;padding:10px 14px 8px}
 .sect-head .eyebrow{color:var(--gold)}
 .sect-head .extra{margin-left:auto;font-size:11px;color:var(--muted);font-family:var(--font-data)}
-.seam{height:1px;background:var(--seam);opacity:.55}
+.seam{height:1px;background:var(--seam);opacity:.3}
 
 /* ladder */
 #ladder{font-family:var(--font-data);font-size:12.5px}
@@ -74,7 +74,8 @@ section{background:var(--panel);border:1px solid var(--line);border-radius:10px;
 #spreadrow{padding:6px 12px;text-align:center;color:var(--amber);font-size:12px;font-family:var(--font-data);
   border-top:1px solid rgba(245,166,35,.35);border-bottom:1px solid rgba(245,166,35,.35);
   background:linear-gradient(90deg,transparent,rgba(245,166,35,.08),transparent)}
-#pairmeta{display:flex;flex-wrap:wrap;gap:12px;padding:8px 14px;font-size:11.5px;color:var(--muted);font-family:var(--font-data)}
+#pairmeta{display:flex;flex-wrap:wrap;gap:6px 14px;padding:8px 14px;font-size:11.5px;color:var(--muted);font-family:var(--font-data)}
+#pairmeta .sub{flex-basis:100%;color:var(--faint);font-size:10px}
 #imbbar{display:inline-flex;width:70px;height:7px;border-radius:4px;overflow:hidden;vertical-align:middle}
 #imbbar i{display:block;height:100%}
 #syncpanel{padding:14px;font-size:13px;line-height:1.9;color:var(--muted);display:none}
@@ -83,19 +84,24 @@ section{background:var(--panel);border:1px solid var(--line);border-radius:10px;
 /* chart + ticket */
 #right{display:flex;flex-direction:column;gap:14px}
 #chartwrap{position:relative;height:340px}
-#indrow{display:flex;gap:4px;flex-wrap:wrap;padding:8px 14px 2px}
-.ind{font-family:var(--font-data);font-size:10.5px;padding:3px 8px;color:var(--muted);border-radius:5px;display:inline-flex;align-items:center;gap:5px}
-.ind i{width:7px;height:7px;border-radius:2px;flex:none}
-.ind[aria-pressed="true"]{color:var(--ink);border-color:var(--gold)}
-.ind[aria-pressed="false"]{opacity:.4}
+#indrow{display:flex;gap:2px;flex-wrap:wrap;padding:7px 14px 0}
+.ind{font-family:var(--font-data);font-size:10px;padding:2px 7px;color:var(--muted);border-radius:4px;display:inline-flex;align-items:center;gap:5px;border-color:transparent;background:transparent}
+.ind:hover{border-color:var(--line)}
+.ind i{width:6px;height:6px;border-radius:2px;flex:none}
+.ind[aria-pressed="true"]{color:var(--ink)}
+.ind[aria-pressed="false"]{opacity:.35}
+.ind[aria-pressed="false"] i{background:var(--faint)!important}
 #chart{width:100%;height:100%;display:block}
 .legend{display:flex;gap:14px;font-size:11px;color:var(--muted);font-family:var(--font-data)}
 .legend .b::before{content:"▲ ";color:var(--bid)} .legend .s::before{content:"▼ ";color:var(--ask)}
 .legend .e::before{content:"┄ ";color:var(--gold)}
 .sect-head{flex-wrap:wrap;row-gap:4px}
-#tfrow{display:flex;gap:4px;margin-left:auto}
-.tf{font-family:var(--font-data);font-size:11px;padding:4px 8px;color:var(--muted);border-radius:5px}
+#tfrow{display:flex;gap:2px;margin-left:auto}
+.tf{font-family:var(--font-data);font-size:11px;padding:3px 7px;color:var(--muted);border-radius:5px;border-color:transparent;background:transparent}
+.tf:hover{border-color:var(--line)}
 .tf[aria-pressed="true"]{background:var(--amber);border-color:var(--amber);color:#221500;font-weight:600}
+.helpchip{margin-left:6px;width:17px;height:17px;border:1px solid var(--line);border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:var(--faint);cursor:help;flex:none}
+.helpchip:hover{color:var(--ink);border-color:var(--gold)}
 #heatwrap{position:relative;height:240px}
 #heat{width:100%;height:100%;display:block}
 #chart{cursor:crosshair}
@@ -125,6 +131,9 @@ section{background:var(--panel);border:1px solid var(--line);border-radius:10px;
 .badge.short{background:var(--ask);color:#1b0605}
 .badge.flat{background:var(--panel2);border:1px solid var(--gold);color:var(--amber)}
 .reco .why{color:var(--muted);font-size:12px}
+.scorebar{position:relative;width:110px;height:5px;border-radius:3px;flex:none;
+  background:linear-gradient(90deg,rgba(240,84,79,.55),rgba(83,93,112,.30) 42%,rgba(83,93,112,.30) 58%,rgba(47,191,113,.55))}
+.scorebar i{position:absolute;top:-3.5px;width:2px;height:12px;background:var(--ink);border-radius:1px}
 #analysis .cells{display:flex;flex-wrap:wrap;gap:6px 18px;font-family:var(--font-data);font-size:12px;color:var(--muted);margin-bottom:10px}
 #analysis .cells b{color:var(--ink)}
 #analysis .targets{font-family:var(--font-data);font-size:12.5px;margin-bottom:10px}
@@ -249,9 +258,9 @@ footer{padding:18px 16px 0;font-size:11px;color:var(--faint);line-height:1.6}
     <section>
       <div class="sect-head">
         <span class="eyebrow">Prix &amp; exécutions</span>
-        <span class="legend"><span class="b">achat</span><span class="s">vente</span><span class="e">entrée moyenne</span></span>
         <div id="tfrow" role="group" aria-label="Horizon des bougies"></div>
         <span class="extra" id="chart-extra"></span>
+        <span class="helpchip" title="Glisser : naviguer dans l'historique&#10;Molette : zoom, ancré sur le curseur&#10;Double-clic : revenir au direct&#10;Poignée en bas : redimensionner&#10;▲ achat · ▼ vente · ligne dorée : entrée moyenne&#10;┄ or : ordres en attente · EMA : clair = court, foncé = long">?</span>
       </div>
       <div class="seam"></div>
       <div id="indrow" role="group" aria-label="Indicateurs affichés"></div>
@@ -337,12 +346,9 @@ footer{padding:18px 16px 0;font-size:11px;color:var(--faint);line-height:1.6}
 </main>
 
 <footer>
-  Données publiques Binance Spot (WebSocket @depth@100ms + @trade + @kline, snapshots et klines REST),
-  reconstruites localement avec vérification stricte de séquence (U/u) et resynchronisation automatique.
-  Bougies multi-horizons (1m → mois) mises à jour en direct ; carte de liquidité échantillonnée chaque
-  seconde depuis le carnet reconstruit. Ordres fictifs exécutés contre le carnet réel : prix moyen avec
-  slippage, frais taker 0,10 %, lots FIFO, historique conservé localement.
+  Données publiques Binance Spot, carnets reconstruits localement (validation stricte de séquence, resynchronisation automatique).
   Outil d'entraînement — aucun ordre réel, aucune clé API, aucune donnée transmise ailleurs qu'à Binance.
+  Signaux calculés automatiquement, à but pédagogique : pas un conseil en investissement.
 </footer>
 
 <div id="toast" role="status"></div>
@@ -731,7 +737,7 @@ function checkAlerts(){
     if ((al.dir==="above" && cur>=al.price) || (al.dir==="below" && cur<=al.price)){
       alerts=alerts.filter(x=>x.id!==al.id); saveAlerts();
       const dec=pr.book.priceDec;
-      const msg=`🔔 ${base(al.symbol)} a atteint ${fmt(al.price,dec)} (cours ${fmt(cur,dec)})`;
+      const msg=`Alerte ${base(al.symbol)} : objectif ${fmt(al.price,dec)} atteint (cours ${fmt(cur,dec)})`;
       toast(msg);
       try { if (window.Notification && Notification.permission==="granted") new Notification("LOB Terminal", {body:msg}); } catch {}
       render.alerts();
@@ -754,9 +760,9 @@ function buildTfRow(){
     row.appendChild(b);
   }
 }
-const IND_DEFS=[["ema9","EMA 9","#58C7E0"],["ema25","EMA 25","#F5A623"],
-  ["ema50","EMA 50","#C084FC"],["ema100","EMA 100","#8A93A6"],
-  ["ema200","EMA 200","#E8EAF0"],["vol","Volume","#8A93A6"],
+const IND_DEFS=[["ema9","EMA 9","#B7DDF4"],["ema25","EMA 25","#7FBCEA"],
+  ["ema50","EMA 50","#539ADF"],["ema100","EMA 100","#3E79CB"],
+  ["ema200","EMA 200","#4568C0"],["vol","Volume","#8A93A6"],
   ["rsi","RSI","#58C7E0"],["walls","Murs","#F5A623"],["targets","TP/SL","#2FBF71"],
   ["orders","Ordres","#C8901A"]];
 function buildIndRow(){
@@ -818,8 +824,11 @@ function scheduleKlineReconnect(){
 }
 
 /* ================= indicateurs techniques ================= */
+// Dégradé d'une seule teinte : clair = période courte, foncé = période longue.
+// L'identité est portée par les étiquettes directes ; l'EMA 200 est en outre
+// tracée plus épaisse (encodage secondaire pour distinguer les pas foncés).
 const EMA_PERIODS=[9,25,50,100,200];
-const EMA_COLORS={9:"#58C7E0",25:"#F5A623",50:"#C084FC",100:"#8A93A6",200:"#E8EAF0"};
+const EMA_COLORS={9:"#B7DDF4",25:"#7FBCEA",50:"#539ADF",100:"#3E79CB",200:"#4568C0"};
 
 function emaSeries(vals, period){          // série EMA complète (null avant amorçage)
   if (vals.length < period) return null;
@@ -1010,10 +1019,7 @@ const render = {
       `<span>imbalance <span id="imbbar"><i style="width:${(imb*100).toFixed(0)}%;background:var(--bid)"></i><i style="flex:1;background:var(--ask)"></i></span> <span class="up">${fmt(imb*100,0)} %</span></span>
        <span>last <b class="num">${fmt(p.lastTrade(), book.priceDec)}</b></span>
        <span>vwap60 <b class="num">${fmt(p.vwap60(), book.priceDec)}</b></span>
-       <span>latence p50 <b class="num">${fmt(p.p50,0)} ms</b></span>
-       <span>${fmt(p.rate,0)} msg/s</span>
-       <span>appliqués ${p.applied.toLocaleString("fr-FR")}</span>
-       <span>${p.resyncs?`<span style="color:var(--amber)">resyncs ${p.resyncs}</span>`:"resyncs 0"}</span>`;
+       <span class="sub">latence p50 ${fmt(p.p50,0)} ms · ${fmt(p.rate,0)} msg/s · ${p.applied.toLocaleString("fr-FR")} deltas appliqués · ${p.resyncs?`<span style="color:var(--amber)">${p.resyncs} resyncs</span>`:"0 resync"}</span>`;
     $("ladder-extra").textContent=p.symbol;
   },
   chart(){
@@ -1117,10 +1123,11 @@ const render = {
     }
     // EMA 9/25/50/100/200 (filtrables) — mêmes bougies visibles que le pan/zoom
     const closesAll=all.map(c=>c.c), off=start;
-    ctx.lineWidth=1.1; ctx.globalAlpha=.9;
+    ctx.globalAlpha=.9;
     for (const per of EMA_PERIODS){
       if (!show["ema"+per]) continue;
       const s=emaSeries(closesAll,per); if (!s) continue;
+      ctx.lineWidth = per===200 ? 1.8 : 1.1;   // la 200 se distingue aussi par l'épaisseur
       ctx.strokeStyle=EMA_COLORS[per]; ctx.beginPath();
       let started=false;
       for (let i=0;i<n;i++){
@@ -1241,7 +1248,7 @@ const render = {
     ctx.fill(); ctx.stroke();
     ctx.fillStyle=tagCol; ctx.fillText(tag, W-padR+9, ly);
     // croix de visée : verticale sur la bougie + horizontale au prix du curseur
-    let extra=`${n}/${total} bougies · ${tf}${kl.offset?` · ⏪ ${kl.offset}`:""} · glisser = naviguer · molette = zoom · double-clic = direct`;
+    let extra=`${n}/${total} · ${tf}${kl.offset?` · ⏪ ${kl.offset} — double-clic pour revenir au direct`:""}`;
     if (kl.hover && kl.hover.x>=padL && kl.hover.x<=W-padR){
       const i=Math.min(n-1, Math.max(0, Math.floor((kl.hover.x-padL)/cw)));
       const c=vis[i];
@@ -1500,9 +1507,11 @@ const render = {
     const targets = a.side==="NEUTRE"
       ? `Support <b>${fmt(a.sup,dec)}</b> · résistance <b>${fmt(a.res,dec)}</b> — attendre une cassure ou un signal plus net.`
       : `Entrée ~ <b>${fmt(a.last,dec)}</b> · TP <b class="${a.side==="LONG"?"up":"down"}">${fmt(a.tp,dec)}</b> · stop <b>${fmt(a.sl,dec)}</b> · R/R <b>${a.rr!=null?a.rr.toFixed(2):"—"}</b>`;
+    const pct=Math.min(98, Math.max(2, ((a.maxScore ? a.score/a.maxScore : 0)+1)/2*100));
     box.innerHTML=
       `<div class="reco"><span class="badge ${cls}">${label}</span>`+
-      `<span class="why">${phrase} sur ${tf} · score ${fs(a.score)} / ±${String(a.maxScore).replace(".",",")}</span></div>`+
+      `<span class="scorebar" title="score ${fs(a.score)} / ±${String(a.maxScore).replace(".",",")}"><i style="left:calc(${pct.toFixed(0)}% - 1px)"></i></span>`+
+      `<span class="why">${phrase} sur ${tf} · ${fs(a.score)} / ±${String(a.maxScore).replace(".",",")}</span></div>`+
       `<div class="targets">${targets}</div>`+
       `<details id="anadet"${anaOpen?" open":""}><summary>Détails du calcul (RSI, EMA, volume, carnet, murs)</summary>`+
         `<div class="cells">`+
@@ -1589,7 +1598,7 @@ const render = {
     if (!alerts.length){ list.innerHTML=`<div class="muted" style="font-size:11.5px">Aucune alerte — saisir un prix pour la paire au focus.</div>`; return; }
     list.innerHTML=alerts.map(a=>{
       const dec=bySym[a.symbol]?.book.priceDec ?? 2;
-      return `<div class="alert-row"><span style="color:var(--amber)">🔔</span>`+
+      return `<div class="alert-row"><span class="${a.dir==="above"?"up":"down"}">${a.dir==="above"?"▲":"▼"}</span>`+
         `<b>${base(a.symbol)}</b><span>${a.dir==="above"?"≥":"≤"} ${fmt(a.price,dec)}</span>`+
         `<button class="cancel" data-id="${a.id}">Suppr.</button></div>`;
     }).join("");
