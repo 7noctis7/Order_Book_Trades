@@ -97,6 +97,10 @@ section{background:var(--panel);border:1px solid var(--line);border-radius:10px;
 .tf[aria-pressed="true"]{background:var(--amber);border-color:var(--amber);color:#221500;font-weight:600}
 #heatwrap{position:relative;height:240px}
 #heat{width:100%;height:100%;display:block}
+#chart{cursor:crosshair}
+.grip{position:absolute;left:0;right:0;bottom:0;height:9px;cursor:ns-resize;z-index:2}
+.grip::after{content:"";display:block;width:46px;height:3px;margin:3px auto 0;border-radius:2px;background:var(--line)}
+.grip:hover::after{background:var(--gold)}
 
 /* analyse & recommandation */
 #analysis{padding:12px 14px 14px;font-size:12.5px;line-height:1.55}
@@ -215,7 +219,7 @@ footer{padding:18px 16px 0;font-size:11px;color:var(--faint);line-height:1.6}
       </div>
       <div class="seam"></div>
       <div id="indrow" role="group" aria-label="Indicateurs affichés"></div>
-      <div id="chartwrap"><canvas id="chart"></canvas></div>
+      <div id="chartwrap"><canvas id="chart"></canvas><div id="chartgrip" class="grip" title="Glisser pour redimensionner"></div></div>
     </section>
 
     <section>
@@ -225,7 +229,7 @@ footer{padding:18px 16px 0;font-size:11px;color:var(--faint);line-height:1.6}
         <span class="extra" id="heat-extra"></span>
       </div>
       <div class="seam"></div>
-      <div id="heatwrap"><canvas id="heat"></canvas></div>
+      <div id="heatwrap"><canvas id="heat"></canvas><div id="heatgrip" class="grip" title="Glisser pour redimensionner"></div></div>
     </section>
 
     <section>
@@ -315,7 +319,8 @@ const REST_BASES = ["https://api.binance.com","https://data-api.binance.vision"]
 const WS_BASES   = ["wss://stream.binance.com:9443","wss://data-stream.binance.vision"];
 const DEPTH_LIMIT = 1000, LADDER_ROWS = 11, FEE = 0.001, INITIAL_CASH = 10000;
 const HISTORY_MAX = 3600, STORE_KEY = "lob-paper-fills-v1";
-const HEAT_MAX = 360, HEAT_LEVELS = 40;   // carte de liquidité : 6 min à 1 éch./s, 40 niveaux/côté
+const HEAT_MAX = 360;                     // carte de liquidité : 6 min à 1 échantillon/s
+const HEAT_PCT = 0.0035, HEAT_BINS = 120; // fenêtre ±0,35 % autour du mid, agrégée en 120 paliers/côté
 const TFS = [["LIVE","tick"],["1m","1m"],["5m","5m"],["15m","15m"],["30m","30m"],
              ["1h","1h"],["4h","4h"],["1d","D"],["1w","W"],["1M","M"]];
 
@@ -655,20 +660,27 @@ const PREFS_KEY="lob-ui-prefs-v1";
 const show={ema9:true, ema25:true, ema50:true, ema100:true, ema200:true,
             vol:true, rsi:true, walls:true, targets:true};
 let anaOpen=false, heatHover=null;
+const heatCache={cv:null, key:"", cols:null};   // bitmap du corps de la heatmap
+const ui={chartH:null, heatH:null};             // hauteurs de panneaux (poignées)
 function loadPrefs(){
   try {
     const p=JSON.parse(localStorage.getItem(PREFS_KEY)||"{}");
     if (p.show) for (const k of Object.keys(show)) if (typeof p.show[k]==="boolean") show[k]=p.show[k];
     if (p.tf && TFS.some(t=>t[0]===p.tf)) tf=p.tf;
     if (Number.isInteger(p.focus) && p.focus>=0 && p.focus<SYMBOLS.length) focus=p.focus;
+    if (p.ui){
+      Object.assign(ui, p.ui);
+      if (ui.chartH) $("chartwrap").style.height=ui.chartH+"px";
+      if (ui.heatH) $("heatwrap").style.height=ui.heatH+"px";
+    }
   } catch {}
 }
-function savePrefs(){ try { localStorage.setItem(PREFS_KEY, JSON.stringify({show, tf, focus})); } catch {} }
+function savePrefs(){ try { localStorage.setItem(PREFS_KEY, JSON.stringify({show, tf, focus, ui})); } catch {} }
 
 /* ================= bougies (klines REST + flux @kline) ================= */
 let tf="1m";   // horizon affiché — "LIVE" = ligne tick par tick depuis l'ouverture
 const kl={sym:null, tf:null, candles:[], dec:2, ws:null, wsAttempt:0,
-          loading:false, error:null, seq:0, view:120, hover:null};
+          loading:false, error:null, seq:0, view:120, offset:0, cw:6, hover:null};
 
 function buildTfRow(){
   const row=$("tfrow"); row.innerHTML="";
@@ -704,7 +716,7 @@ async function loadKlines(){
   if (tf==="LIVE"){ closeKlineWS(); kl.sym=null; kl.tf=null; kl.error=null; return; }
   if (kl.sym===sym && kl.tf===tf && (kl.candles.length || kl.loading)) return;
   const mySeq=++kl.seq;
-  kl.sym=sym; kl.tf=tf; kl.candles=[]; kl.error=null; kl.loading=true; kl.hover=null;
+  kl.sym=sym; kl.tf=tf; kl.candles=[]; kl.error=null; kl.loading=true; kl.hover=null; kl.offset=0;
   closeKlineWS(); render.chart();
   for (const b of REST_BASES){
     try {
@@ -788,22 +800,40 @@ function atrLast(cs, period=14){           // ATR simple (moyenne des True Range
     s+=Math.max(cs[i].h-cs[i].l, Math.abs(cs[i].h-cs[i-1].c), Math.abs(cs[i].l-cs[i-1].c));
   return s/period;
 }
+function bucketize(book, side, mid){
+  // Agrège un côté du carnet en paliers de prix sur la fenêtre mid ± HEAT_PCT.
+  // Indispensable sur les paires denses : les 40 premiers niveaux de BTC ne
+  // couvrent que quelques dollars — niveau par niveau, tout s'écrase au mid.
+  const win=mid*HEAT_PCT, bw=win/HEAT_BINS;
+  const keys = side==="b"?book.bidKeys:book.askKeys, map = side==="b"?book.bids:book.asks;
+  const out=new Map();
+  for (const k of keys){                    // clés triées depuis le meilleur prix
+    const p=+k;
+    if (side==="b" ? p<mid-win : p>mid+win) break;
+    const bin=Math.round((p-mid)/bw);
+    out.set(bin,(out.get(bin)||0)+map.get(k));
+  }
+  return [...out].map(([bin,q])=>[mid+bin*bw, q]);
+}
 function findWall(book, side, ref=0, minDist=0){
-  // Un « mur » = un niveau nettement au-dessus du lot : ≥ 4× le niveau moyen
-  // ET ≥ 6 % du côté scanné (la médiane est inutilisable : les carnets réels
-  // sont remplis de niveaux-poussière). minDist écarte les niveaux collés au
-  // prix pour obtenir des supports/résistances exploitables.
-  const lv=book.top(side,50); if (lv.length<10) return null;
-  const total=lv.reduce((s,l)=>s+l[1],0), avg=total/lv.length;
+  // Un « mur » = un palier nettement au-dessus du lot : ≥ 3× le palier moyen
+  // ET ≥ 4 % du côté scanné. Distance minimale au prix imposée (≥ 8 bp par
+  // défaut) : un support/résistance collé au meilleur bid/ask ne veut rien dire.
+  const mid=book.mid(); if (mid==null) return null;
+  ref = ref || mid;
+  minDist = Math.max(minDist, ref*0.0008);
+  const buckets=bucketize(book, side, mid);
+  if (buckets.length<8) return null;
+  const total=buckets.reduce((s,b)=>s+b[1],0), avg=total/buckets.length;
   if (!(avg>0)) return null;
   let best=null;
-  for (const [p,q] of lv){
-    if (minDist && Math.abs(p-ref)<minDist) continue;
+  for (const [p,q] of buckets){
+    if (Math.abs(p-ref)<minDist) continue;
     if (!best || q>best.qty) best={price:p, qty:q};
   }
   if (!best) return null;
   best.strength=best.qty/avg; best.share=best.qty/total;
-  return (best.strength>=4 && best.share>=0.06) ? best : null;
+  return (best.strength>=3 && best.share>=0.04) ? best : null;
 }
 function findWalls(book){ return {bid:findWall(book,"b"), ask:findWall(book,"a")}; }
 
@@ -852,8 +882,8 @@ function analyze(){
   const side = score>=2 ? "LONG" : score<=-2 ? "SHORT" : "NEUTRE";
   let tp=null, sl=null, sup=null, res=null;
   if (atr!=null){
-    // supports/résistances : murs à distance utile du prix (≥ 0,3×ATR et ≥ 5 bp)
-    const minD=Math.max(atr*0.3, last*0.0005);
+    // supports/résistances : murs à distance utile du prix (≥ 0,3×ATR et ≥ 8 bp)
+    const minD=Math.max(atr*0.3, last*0.0008);
     const supW=book.ready ? findWall(book,"b",last,minD) : null;
     const resW=book.ready ? findWall(book,"a",last,minD) : null;
     sup = supW ? supW.price : last-2*atr;
@@ -990,7 +1020,10 @@ const render = {
     if (kl.error){ $("chart-extra").textContent=""; return render._msg(ctx, kl.error); }
     if (kl.loading && !kl.candles.length){ $("chart-extra").textContent=""; return render._msg(ctx,`Chargement de l'historique ${tf}…`); }
     if (kl.candles.length<2){ $("chart-extra").textContent=""; return render._msg(ctx,"Historique en construction…"); }
-    const all=kl.candles, vis=all.slice(-kl.view), n=vis.length, dec=kl.dec;
+    const all=kl.candles, total=all.length, dec=kl.dec;
+    kl.offset=Math.min(Math.max(0, kl.offset), Math.max(0, total-kl.view));
+    const start=Math.max(0, total-kl.view-kl.offset);
+    const vis=all.slice(start, start+kl.view), n=vis.length;
     const padL=10, padR=74, padT=14, padB=18, iw=W-padL-padR, ih=H-padT-padB;
     // empilement : prix, puis volumes, puis RSI — chaque panneau est optionnel
     const volH=show.vol?Math.round(ih*0.13):0, rsiH=show.rsi?Math.round(ih*0.17):0;
@@ -1000,6 +1033,7 @@ const render = {
     for (const c of vis){ if (c.l<lo) lo=c.l; if (c.h>hi) hi=c.h; if (c.v>maxV) maxV=c.v; }
     if (hi===lo){ hi+=hi*1e-6||1e-9; lo-=lo*1e-6||1e-9; }
     const cw=iw/n, bw=Math.max(1, cw*0.62);
+    kl.cw=cw;   // largeur de bougie courante, utilisée par le glisser-naviguer
     const Xc=i=>padL+cw*(i+0.5), Y=v=>padT+ch*(1-(v-lo)/(hi-lo));
     ctx.font="11px IBM Plex Mono"; ctx.textBaseline="middle";
     for (let g=0; g<=3; g++){
@@ -1018,8 +1052,8 @@ const render = {
         ctx.globalAlpha=.45; ctx.fillRect(x-bw/2, volBot-vh, bw, vh); ctx.globalAlpha=1;
       }
     }
-    // EMA 9/25/50/100/200 (filtrables)
-    const closesAll=all.map(c=>c.c), off=all.length-n;
+    // EMA 9/25/50/100/200 (filtrables) — mêmes bougies visibles que le pan/zoom
+    const closesAll=all.map(c=>c.c), off=start;
     ctx.lineWidth=1.1; ctx.globalAlpha=.9;
     for (const per of EMA_PERIODS){
       if (!show["ema"+per]) continue;
@@ -1130,13 +1164,23 @@ const render = {
     if (ctx.roundRect) ctx.roundRect(W-padR+4,ly-9,lw,18,4); else ctx.rect(W-padR+4,ly-9,lw,18);
     ctx.fill(); ctx.stroke();
     ctx.fillStyle=tagCol; ctx.fillText(tag, W-padR+9, ly);
-    // survol : croix verticale + OHLCV
-    let extra=`${n}/${all.length} bougies · ${tf} · molette = zoom`;
-    if (kl.hover!=null && kl.hover>=padL && kl.hover<=W-padR){
-      const i=Math.min(n-1, Math.max(0, Math.floor((kl.hover-padL)/cw)));
+    // croix de visée : verticale sur la bougie + horizontale au prix du curseur
+    let extra=`${n}/${total} bougies · ${tf}${kl.offset?` · ⏪ ${kl.offset}`:""} · glisser = naviguer · molette = zoom · double-clic = direct`;
+    if (kl.hover && kl.hover.x>=padL && kl.hover.x<=W-padR){
+      const i=Math.min(n-1, Math.max(0, Math.floor((kl.hover.x-padL)/cw)));
       const c=vis[i];
       ctx.strokeStyle="rgba(138,147,166,.5)";
       ctx.beginPath(); ctx.moveTo(Xc(i),padT); ctx.lineTo(Xc(i),padT+ih); ctx.stroke();
+      if (kl.hover.y>=padT && kl.hover.y<=padT+ch){
+        ctx.beginPath(); ctx.moveTo(padL,kl.hover.y); ctx.lineTo(W-padR,kl.hover.y); ctx.stroke();
+        const pv=lo+(hi-lo)*(1-(kl.hover.y-padT)/ch);
+        const ptxt=fmt(pv,dec), pw=ctx.measureText(ptxt).width+8;
+        ctx.fillStyle="#11151D"; ctx.strokeStyle="rgba(138,147,166,.6)";
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(W-padR+2,kl.hover.y-8,pw,16,3); else ctx.rect(W-padR+2,kl.hover.y-8,pw,16);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle="#8A93A6"; ctx.fillText(ptxt, W-padR+6, kl.hover.y);
+      }
       extra=`${ft(c.t)} · O ${fmt(c.o,dec)} H ${fmt(c.h,dec)} L ${fmt(c.l,dec)} C ${fmt(c.c,dec)} · vol ${fmt(c.v,2)}`;
     }
     $("chart-extra").textContent=extra;
@@ -1154,36 +1198,45 @@ const render = {
     const t0=hs[0].t, t1=hs.at(-1).t;
     let mLo=Infinity, mHi=-Infinity;
     for (const s of hs){ if (s.mid<mLo) mLo=s.mid; if (s.mid>mHi) mHi=s.mid; }
-    // bande verticale : l'amplitude du mid + une marge, jamais moins de ~12 bp
-    const band=Math.max((mHi-mLo)*0.6, mHi*0.0012, 1e-9);
-    const lo=mLo-band, hi=mHi+band;
+    // l'axe vertical couvre exactement la fenêtre échantillonnée : mid ± HEAT_PCT
+    const lo=mLo*(1-HEAT_PCT), hi=mHi*(1+HEAT_PCT);
     const X=t=>padL+iw*(t-t0)/Math.max(1,t1-t0), Y=v=>padT+ih*(1-(v-lo)/(hi-lo));
     const BIN=2, colW=Math.max(1, iw/Math.max(1,hs.length-1))+0.5;
-    // passe 1 — agrégation en grille (colonne temps × case de 2 px de prix) :
-    // les niveaux proches fusionnent en zones continues au lieu de traits isolés
-    const cols=[], values=[];
-    for (const s of hs){
-      const b=new Map(), a=new Map();
-      for (const [pr,q] of s.b){ if (pr<lo||pr>hi) continue; const k=Math.round(Y(pr)/BIN); b.set(k,(b.get(k)||0)+q); }
-      for (const [pr,q] of s.a){ if (pr<lo||pr>hi) continue; const k=Math.round(Y(pr)/BIN); a.set(k,(a.get(k)||0)+q); }
-      for (const v of b.values()) values.push(v);
-      for (const v of a.values()) values.push(v);
-      cols.push({t:s.t, x:X(s.t)-colW/2, b, a});
+    // le corps de la carte (dizaines de milliers de rectangles) n'est redessiné
+    // qu'à l'arrivée d'un échantillon ou au redimensionnement — le survol et le
+    // rafraîchissement périodique réutilisent le bitmap en cache
+    const key=[p.symbol, hs.length, t1, W, H, dpr].join("|");
+    if (heatCache.key!==key){
+      const bc=heatCache.cv || (heatCache.cv=document.createElement("canvas"));
+      bc.width=W*dpr; bc.height=H*dpr;
+      const c2=bc.getContext("2d"); c2.setTransform(dpr,0,0,dpr,0,0); c2.clearRect(0,0,W,H);
+      // passe 1 — agrégation en grille (colonne temps × case de 2 px de prix)
+      const cols=[], values=[];
+      for (const s of hs){
+        const b=new Map(), a=new Map();
+        for (const [pr,q] of s.b){ if (pr<lo||pr>hi) continue; const k=Math.round(Y(pr)/BIN); b.set(k,(b.get(k)||0)+q); }
+        for (const [pr,q] of s.a){ if (pr<lo||pr>hi) continue; const k=Math.round(Y(pr)/BIN); a.set(k,(a.get(k)||0)+q); }
+        for (const v of b.values()) values.push(v);
+        for (const v of a.values()) values.push(v);
+        cols.push({t:s.t, x:X(s.t)-colW/2, b, a});
+      }
+      // passe 2 — échelle au 95e percentile + gamma : les murs saturent
+      // sans écraser la liquidité ordinaire
+      values.sort((x,y)=>x-y);
+      const p95=values.length ? (values[Math.floor(values.length*0.95)] || values[values.length-1]) : 1;
+      const ramp=v=>Math.min(1, Math.pow(v/p95, 0.6));
+      for (const c of cols){
+        for (const [k,v] of c.b){ const al=0.05+0.95*ramp(v);
+          c2.fillStyle=`rgba(47,191,113,${al.toFixed(3)})`; c2.fillRect(c.x, k*BIN-1, colW, BIN);
+          if (al>0.85){ c2.fillStyle="rgba(255,255,255,.10)"; c2.fillRect(c.x, k*BIN-1, colW, 1); } }
+        for (const [k,v] of c.a){ const al=0.05+0.95*ramp(v);
+          c2.fillStyle=`rgba(240,84,79,${al.toFixed(3)})`; c2.fillRect(c.x, k*BIN-1, colW, BIN);
+          if (al>0.85){ c2.fillStyle="rgba(255,255,255,.10)"; c2.fillRect(c.x, k*BIN-1, colW, 1); } }
+      }
+      heatCache.key=key; heatCache.cols=cols;
     }
-    if (!values.length) return render._msg(ctx,"Carte en construction…");
-    // passe 2 — échelle au 95e percentile + gamma : les murs saturent
-    // sans écraser la liquidité ordinaire
-    values.sort((x,y)=>x-y);
-    const p95=values[Math.floor(values.length*0.95)] || values[values.length-1] || 1;
-    const ramp=v=>Math.min(1, Math.pow(v/p95, 0.6));
-    for (const c of cols){
-      for (const [k,v] of c.b){ const al=0.05+0.95*ramp(v);
-        ctx.fillStyle=`rgba(47,191,113,${al.toFixed(3)})`; ctx.fillRect(c.x, k*BIN-1, colW, BIN);
-        if (al>0.85){ ctx.fillStyle="rgba(255,255,255,.10)"; ctx.fillRect(c.x, k*BIN-1, colW, 1); } }
-      for (const [k,v] of c.a){ const al=0.05+0.95*ramp(v);
-        ctx.fillStyle=`rgba(240,84,79,${al.toFixed(3)})`; ctx.fillRect(c.x, k*BIN-1, colW, BIN);
-        if (al>0.85){ ctx.fillStyle="rgba(255,255,255,.10)"; ctx.fillRect(c.x, k*BIN-1, colW, 1); } }
-    }
+    ctx.drawImage(heatCache.cv, 0, 0, W, H);
+    const cols=heatCache.cols;
     // ligne du mid
     ctx.beginPath(); hs.forEach((s,i)=> i?ctx.lineTo(X(s.t),Y(s.mid)):ctx.moveTo(X(s.t),Y(s.mid)));
     ctx.strokeStyle="rgba(232,234,240,.85)"; ctx.lineWidth=1.2; ctx.stroke();
@@ -1220,7 +1273,7 @@ const render = {
     const w1=ctx.measureText(ftt(t1)).width; ctx.fillText(ftt(t1), W-padR-w1-4, H-4);
     ctx.textBaseline="middle";
     // survol : heure · prix · quantité posée dans la case
-    let extraTxt=`${p.symbol} · fenêtre ${Math.round((t1-t0)/1000)} s · ${HEAT_LEVELS} niveaux/côté`;
+    let extraTxt=`${p.symbol} · fenêtre ${Math.round((t1-t0)/1000)} s · mid ±${(HEAT_PCT*100).toLocaleString("fr-FR")} %`;
     if (heatHover && heatHover.x>=padL && heatHover.x<=padL+iw && heatHover.y>=padT && heatHover.y<=padT+ih){
       const idx=Math.min(cols.length-1, Math.max(0, Math.round((heatHover.x-padL)/iw*(cols.length-1))));
       const price=lo+(hi-lo)*(1-(heatHover.y-padT)/ih);
@@ -1469,7 +1522,7 @@ setInterval(()=>{ // échantillonnage de l'historique (1 s)
   for (const p of pairs){ const m=p.book.mid();
     if (p.book.ready && m!=null){ p.history.push([now,m]); mids[p.symbol]=m;
       if (p.history.length>HISTORY_MAX) p.history.shift();
-      p.heat.push({t:now, mid:m, b:p.book.top("b",HEAT_LEVELS), a:p.book.top("a",HEAT_LEVELS)});
+      p.heat.push({t:now, mid:m, b:bucketize(p.book,"b",m), a:bucketize(p.book,"a",m)});
       if (p.heat.length>HEAT_MAX) p.heat.shift(); } }
   equitySamples.push({t:now, eq:paper.summary(mids).equity});
   if (equitySamples.length>HISTORY_MAX) equitySamples.shift();
@@ -1489,24 +1542,67 @@ setInterval(()=>{ // déclencheurs des ordres en attente + rafraîchissement
 }, 500);
 setInterval(render.tabs, 2000);            // onglets (mids + états)
 window.addEventListener("resize", ()=>{ render.chart(); render.heat(); });
-$("chart").addEventListener("mousemove", e=>{
+/* ===== interactions type TradingView : survol, glisser, zoom ancré, poignées ===== */
+let chartRaf=false, heatRaf=false, chartDrag=null;
+function chartRAF(){ if (chartRaf) return; chartRaf=true; requestAnimationFrame(()=>{ chartRaf=false; render.chart(); }); }
+function heatRAF(){ if (heatRaf) return; heatRaf=true; requestAnimationFrame(()=>{ heatRaf=false; render.heat(); }); }
+$("chart").addEventListener("mousedown", e=>{
   if (tf==="LIVE") return;
-  kl.hover = e.clientX - e.target.getBoundingClientRect().left;
-  render.chart();
+  e.preventDefault();
+  chartDrag={x:e.clientX, off:kl.offset};
+  $("chart").style.cursor="grabbing";
 });
-$("chart").addEventListener("mouseleave", ()=>{ kl.hover=null; if (tf!=="LIVE") render.chart(); });
-$("heat").addEventListener("mousemove", e=>{
+window.addEventListener("mousemove", e=>{
+  if (!chartDrag) return;
+  const moved=Math.round((e.clientX-chartDrag.x)/(kl.cw||6));   // vers la droite = reculer dans le temps
+  kl.offset=Math.min(Math.max(0, chartDrag.off+moved), Math.max(0, kl.candles.length-kl.view));
+  kl.hover=null;
+  chartRAF();
+});
+window.addEventListener("mouseup", ()=>{ if (chartDrag){ chartDrag=null; $("chart").style.cursor=""; } });
+$("chart").addEventListener("mousemove", e=>{
+  if (tf==="LIVE" || chartDrag) return;
   const r=e.target.getBoundingClientRect();
-  heatHover={x:e.clientX-r.left, y:e.clientY-r.top};
-  render.heat();
+  kl.hover={x:e.clientX-r.left, y:e.clientY-r.top};
+  chartRAF();
 });
-$("heat").addEventListener("mouseleave", ()=>{ heatHover=null; render.heat(); });
+$("chart").addEventListener("mouseleave", ()=>{ kl.hover=null; if (tf!=="LIVE") chartRAF(); });
+$("chart").addEventListener("dblclick", ()=>{ if (tf==="LIVE") return; kl.offset=0; kl.view=120; chartRAF(); });
 $("chartwrap").addEventListener("wheel", e=>{
   if (tf==="LIVE") return;
   e.preventDefault();
-  kl.view = Math.round(Math.min(500, Math.max(30, kl.view*(e.deltaY>0 ? 1.25 : 0.8))));
-  render.chart();
+  // zoom ancré sur le curseur : la bougie sous la souris reste en place
+  const r=$("chart").getBoundingClientRect();
+  const f=Math.min(1, Math.max(0, (e.clientX-r.left-10)/Math.max(1, r.width-84)));
+  const total=kl.candles.length;
+  const start=Math.max(0, total-kl.view-kl.offset);
+  const anchor=start+Math.floor(f*kl.view);
+  kl.view=Math.round(Math.min(500, Math.max(20, kl.view*(e.deltaY>0 ? 1.25 : 0.8))));
+  const newStart=anchor-Math.floor(f*kl.view);
+  kl.offset=Math.min(Math.max(0, total-kl.view-newStart), Math.max(0, total-kl.view));
+  chartRAF();
 }, {passive:false});
+$("heat").addEventListener("mousemove", e=>{
+  const r=e.target.getBoundingClientRect();
+  heatHover={x:e.clientX-r.left, y:e.clientY-r.top};
+  heatRAF();
+});
+$("heat").addEventListener("mouseleave", ()=>{ heatHover=null; heatRAF(); });
+/* poignées de redimensionnement vertical des panneaux */
+function makeGrip(gripId, wrapId, prefKey, min, max, redraw){
+  $(gripId).addEventListener("mousedown", e=>{
+    e.preventDefault();
+    const y0=e.clientY, h0=$(wrapId).clientHeight;
+    const move=ev=>{ $(wrapId).style.height=Math.min(max, Math.max(min, h0+ev.clientY-y0))+"px"; redraw(); };
+    const up=()=>{
+      window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up);
+      ui[prefKey]=$(wrapId).clientHeight; savePrefs();
+    };
+    window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+  });
+}
+makeGrip("chartgrip","chartwrap","chartH",220,640,chartRAF);
+makeGrip("heatgrip","heatwrap","heatH",160,560,heatRAF);
 
 /* ================= démarrage ================= */
 (async function(){
