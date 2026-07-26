@@ -307,6 +307,7 @@ footer{padding:18px 16px 0;font-size:11px;color:var(--faint);line-height:1.6}
       <div class="sect-head">
         <span class="eyebrow">Carte de liquidité</span>
         <span class="legend"><span class="b">zone LONG · bids</span><span class="s">zone SHORT · asks</span></span>
+        <div id="heatpcts" role="group" aria-label="Fenêtre de prix"></div>
         <span class="extra" id="heat-extra"></span>
       </div>
       <div class="seam"></div>
@@ -473,6 +474,8 @@ class Pair {
     this.heat=[];   // carte de liquidité : 1 échantillon/s du haut du carnet
     this.cvdVal=0;  // delta de volume cumulé (achats − ventes au marché) depuis l'ouverture
     this.cvd=[];    // [ts, cvd] échantillonné chaque seconde
+    this.wide=null; // instantané REST profond (5000 niveaux/côté) pour les fenêtres larges
+    this.wideFetching=false;
   }
   get p50(){ if(!this.lat.length) return null; const s=[...this.lat].sort((x,y)=>x-y); return s[s.length>>1]; }
   get rate(){ const cut=Date.now()-5000; this.msgTimes=this.msgTimes.filter(t=>t>cut); return this.msgTimes.length/5; }
@@ -710,7 +713,8 @@ const show={ema9:true, ema25:true, ema50:true, ema100:true, ema200:true,
             vol:true, rsi:true, walls:true, targets:true, orders:true};
 let anaOpen=false, heatHover=null;
 const heatCache={cv:null, key:"", cols:null};   // bitmap du corps de la heatmap
-const ui={chartH:null, heatH:null, wallAlerts:true};   // hauteurs de panneaux + alerte murs
+const HEAT_PCTS=[[0.0035,"±0,35 %"],[0.01,"±1 %"],[0.02,"±2 %"],[0.05,"±5 %"],[0.10,"±10 %"]];
+const ui={chartH:null, heatH:null, wallAlerts:true, heatPct:HEAT_PCT};   // panneaux + alertes murs + fenêtre carte
 function loadPrefs(){
   try {
     const p=JSON.parse(localStorage.getItem(PREFS_KEY)||"{}");
@@ -719,6 +723,7 @@ function loadPrefs(){
     if (Number.isInteger(p.focus) && p.focus>=0 && p.focus<SYMBOLS.length) focus=p.focus;
     if (p.ui){
       Object.assign(ui, p.ui);
+      if (!HEAT_PCTS.some(h=>h[0]===ui.heatPct)) ui.heatPct=HEAT_PCT;
       if (ui.chartH) $("chartwrap").style.height=ui.chartH+"px";
       if (ui.heatH) $("heatwrap").style.height=ui.heatH+"px";
     }
@@ -766,7 +771,7 @@ function checkWallAlerts(){
     const mid=p.book.mid(); if (mid==null) continue;
     for (const [side,lab] of [["b","Mur bid (support)"],["a","Mur ask (résistance)"]]){
       const key=p.symbol+side;
-      const w=findWall(p.book, side);
+      const w=findWall(p, side);
       const cur=(w && w.strength>=8) ? {price:w.price, qty:w.qty, strength:w.strength} : null;
       const prev=wallPrev[key]; wallPrev[key]=cur;
       if (!on || !cur || p.heat.length<5) continue;
@@ -800,6 +805,22 @@ const IND_DEFS=[["ema9","EMA 9","#B7DDF4"],["ema25","EMA 25","#7FBCEA"],
   ["ema200","EMA 200","#4568C0"],["vol","Volume","#8A93A6"],
   ["rsi","RSI","#58C7E0"],["walls","Murs","#F5A623"],["targets","TP/SL","#2FBF71"],
   ["orders","Ordres","#C8901A"]];
+function buildHeatPcts(){
+  const row=$("heatpcts"); row.innerHTML="";
+  for (const [val,lab] of HEAT_PCTS){
+    const b=document.createElement("button");
+    b.className="tf"; b.textContent=lab;
+    b.setAttribute("aria-pressed", val===ui.heatPct);
+    b.onclick=()=>{
+      ui.heatPct=val; savePrefs(); buildHeatPcts();
+      pairs.forEach(p=>{ p.heat=[]; });     // l'historique repart sur la nouvelle fenêtre
+      heatCache.key="";
+      if (val>HEAT_PCT) fetchWideBook(focused());
+      render.heat(); render.depth();
+    };
+    row.appendChild(b);
+  }
+}
 function buildIndRow(){
   const row=$("indrow"); row.innerHTML="";
   for (const [key,lab,col] of IND_DEFS){
@@ -907,42 +928,76 @@ function atrLast(cs, period=14){           // ATR simple (moyenne des True Range
     s+=Math.max(cs[i].h-cs[i].l, Math.abs(cs[i].h-cs[i-1].c), Math.abs(cs[i].l-cs[i-1].c));
   return s/period;
 }
-function bucketize(book, side, mid){
-  // Agrège un côté du carnet en paliers de prix sur la fenêtre mid ± HEAT_PCT.
-  // Indispensable sur les paires denses : les 40 premiers niveaux de BTC ne
-  // couvrent que quelques dollars — niveau par niveau, tout s'écrase au mid.
-  const win=mid*HEAT_PCT, bw=win/HEAT_BINS;
+function mergedLevels(p, side, mid, win){
+  // Niveaux du carnet temps réel, complétés au-delà de sa couverture (≈ ±0,3 %
+  // sur les paires denses) par le dernier instantané REST profond (5000
+  // niveaux/côté, rafraîchi ~30 s) — pour les fenêtres larges.
+  const book=p.book;
   const keys = side==="b"?book.bidKeys:book.askKeys, map = side==="b"?book.bids:book.asks;
-  const out=new Map();
+  const out=[];
   for (const k of keys){                    // clés triées depuis le meilleur prix
-    const p=+k;
-    if (side==="b" ? p<mid-win : p>mid+win) break;
-    const bin=Math.round((p-mid)/bw);
-    out.set(bin,(out.get(bin)||0)+map.get(k));
+    const pr=+k;
+    if (side==="b" ? pr<mid-win : pr>mid+win) break;
+    out.push([pr, map.get(k)]);
+  }
+  const wb=p.wide;
+  if (wb){
+    const arr = side==="b"?wb.b:wb.a;
+    const liveEdge = out.length ? out[out.length-1][0] : mid;
+    for (const [pr,q] of arr){
+      if (side==="b" ? pr>=liveEdge : pr<=liveEdge) continue;   // zone déjà couverte en live
+      if (side==="b" ? pr<mid-win : pr>mid+win) break;
+      out.push([pr,q]);
+    }
+  }
+  return out;
+}
+async function fetchWideBook(p){
+  if (p.wideFetching) return; p.wideFetching=true;
+  for (const b of REST_BASES){
+    try {
+      const r=await fetch(`${b}/api/v3/depth?symbol=${p.symbol}&limit=5000`);
+      if (!r.ok) throw new Error("HTTP "+r.status);
+      const d=await r.json();
+      p.wide={ts:Date.now(), b:d.bids.map(l=>[+l[0],+l[1]]), a:d.asks.map(l=>[+l[0],+l[1]])};
+      break;
+    } catch(e){ /* essayer la base suivante */ }
+  }
+  p.wideFetching=false;
+}
+function bucketize(p, side, mid, pct=HEAT_PCT){
+  // Agrège un côté du carnet (live + instantané profond) en paliers de prix
+  // sur la fenêtre mid ± pct. Indispensable sur les paires denses : les
+  // premiers niveaux de BTC ne couvrent que quelques dollars.
+  const win=mid*pct, bw=win/HEAT_BINS;
+  const out=new Map();
+  for (const [pr,q] of mergedLevels(p, side, mid, win)){
+    const bin=Math.round((pr-mid)/bw);
+    out.set(bin,(out.get(bin)||0)+q);
   }
   return [...out].map(([bin,q])=>[mid+bin*bw, q]);
 }
-function findWall(book, side, ref=0, minDist=0){
+function findWall(p, side, ref=0, minDist=0){
   // Un « mur » = un palier nettement au-dessus du lot : ≥ 3× le palier moyen
-  // ET ≥ 4 % du côté scanné. Distance minimale au prix imposée (≥ 8 bp par
-  // défaut) : un support/résistance collé au meilleur bid/ask ne veut rien dire.
-  const mid=book.mid(); if (mid==null) return null;
+  // ET ≥ 4 % du côté scanné, toujours sur la fenêtre d'exécution (±0,35 %) —
+  // indépendamment de la fenêtre d'affichage choisie pour la carte.
+  const mid=p.book.mid(); if (mid==null) return null;
   ref = ref || mid;
   minDist = Math.max(minDist, ref*0.0008);
-  const buckets=bucketize(book, side, mid);
+  const buckets=bucketize(p, side, mid, HEAT_PCT);
   if (buckets.length<8) return null;
   const total=buckets.reduce((s,b)=>s+b[1],0), avg=total/buckets.length;
   if (!(avg>0)) return null;
   let best=null;
-  for (const [p,q] of buckets){
-    if (Math.abs(p-ref)<minDist) continue;
-    if (!best || q>best.qty) best={price:p, qty:q};
+  for (const [pr,q] of buckets){
+    if (Math.abs(pr-ref)<minDist) continue;
+    if (!best || q>best.qty) best={price:pr, qty:q};
   }
   if (!best) return null;
   best.strength=best.qty/avg; best.share=best.qty/total;
   return (best.strength>=3 && best.share>=0.04) ? best : null;
 }
-function findWalls(book){ return {bid:findWall(book,"b"), ask:findWall(book,"a")}; }
+function findWalls(p){ return {bid:findWall(p,"b"), ask:findWall(p,"a")}; }
 
 /* ================= analyse & recommandation par horizon ================= */
 function analyze(){
@@ -959,7 +1014,7 @@ function analyze(){
   const volAvg=cs.length>=21 ? cs.slice(-21,-1).reduce((s,c)=>s+c.v,0)/20 : null;
   const volX=volAvg>0 ? lastC.v/volAvg : null;
   const imb=book.ready ? book.imbalance(10) : null;
-  const walls=book.ready ? findWalls(book) : {bid:null, ask:null};
+  const walls=book.ready ? findWalls(p) : {bid:null, ask:null};
   const reasons=[]; let score=0, maxScore=0;
   if (emas[200]!=null){ maxScore+=1;
     if (above[200]){ score+=1; reasons.push(["+1","prix au-dessus de l'EMA 200 — tendance de fond haussière"]); }
@@ -999,8 +1054,8 @@ function analyze(){
   if (atr!=null){
     // supports/résistances : murs à distance utile du prix (≥ 0,3×ATR et ≥ 8 bp)
     const minD=Math.max(atr*0.3, last*0.0008);
-    const supW=book.ready ? findWall(book,"b",last,minD) : null;
-    const resW=book.ready ? findWall(book,"a",last,minD) : null;
+    const supW=book.ready ? findWall(p,"b",last,minD) : null;
+    const resW=book.ready ? findWall(p,"a",last,minD) : null;
     sup = supW ? supW.price : last-2*atr;
     res = resW ? resW.price : last+2*atr;
     if (side==="LONG"){
@@ -1243,7 +1298,7 @@ const render = {
     }
     // murs de liquidité du carnet, projetés sur le graphique
     if (show.walls && p.book.ready){
-      const walls=findWalls(p.book);
+      const walls=findWalls(p);
       for (const [w,col,lab] of [[walls.bid,"#2FBF71","mur bid"],[walls.ask,"#F0544F","mur ask"]]){
         if (!w || w.price<lo || w.price>hi) continue;
         const y=Y(w.price);
@@ -1329,8 +1384,8 @@ const render = {
     const mapH=ih-cvdH-(hasCvd?8:0);
     let mLo=Infinity, mHi=-Infinity;
     for (const s of hs){ if (s.mid<mLo) mLo=s.mid; if (s.mid>mHi) mHi=s.mid; }
-    // l'axe vertical couvre exactement la fenêtre échantillonnée : mid ± HEAT_PCT
-    const lo=mLo*(1-HEAT_PCT), hi=mHi*(1+HEAT_PCT);
+    // l'axe vertical couvre exactement la fenêtre échantillonnée (choisie par l'utilisateur)
+    const lo=mLo*(1-ui.heatPct), hi=mHi*(1+ui.heatPct);
     const X=t=>padL+iw*(t-t0)/Math.max(1,t1-t0), Y=v=>padT+mapH*(1-(v-lo)/(hi-lo));
     const BIN=2, colW=Math.max(1, iw/Math.max(1,hs.length-1))+0.5;
     // le corps de la carte (dizaines de milliers de rectangles) n'est redessiné
@@ -1393,7 +1448,7 @@ const render = {
     // zones de liquidité actuelles : plus gros mur de chaque côté, étiqueté
     ctx.font="10px IBM Plex Mono"; ctx.textBaseline="middle";
     if (p.book.ready){
-      const walls=findWalls(p.book);
+      const walls=findWalls(p);
       for (const [w,col,rgb,lab,above] of [[walls.bid,"#2FBF71","47,191,113","ZONE LONG · support",false],
                                            [walls.ask,"#F0544F","240,84,79","ZONE SHORT · résistance",true]]){
         if (!w || w.price<lo || w.price>hi) continue;
@@ -1423,7 +1478,12 @@ const render = {
     const w1=ctx.measureText(ftt(t1)).width; ctx.fillText(ftt(t1), W-padR-w1-4, H-4);
     ctx.textBaseline="middle";
     // survol : heure · prix · quantité posée dans la case
-    let extraTxt=`${p.symbol} · fenêtre ${Math.round((t1-t0)/1000)} s · mid ±${(HEAT_PCT*100).toLocaleString("fr-FR")} %`;
+    let extraTxt=`${p.symbol} · ${Math.round((t1-t0)/1000)} s · mid ±${(ui.heatPct*100).toLocaleString("fr-FR")} %`;
+    if (ui.heatPct>HEAT_PCT){
+      extraTxt += p.wide
+        ? ` · carnet couvert ${fmt(p.wide.b.at(-1)?.[0], p.book.priceDec)} → ${fmt(p.wide.a.at(-1)?.[0], p.book.priceDec)} (instantané ~30 s au-delà du live)`
+        : " · chargement de l'instantané profond…";
+    }
     if (heatHover && heatHover.x>=padL && heatHover.x<=padL+iw && heatHover.y>=padT && heatHover.y<=padT+mapH){
       const idx=Math.min(cols.length-1, Math.max(0, Math.round((heatHover.x-padL)/iw*(cols.length-1))));
       const price=lo+(hi-lo)*(1-(heatHover.y-padT)/mapH);
@@ -1604,17 +1664,13 @@ const render = {
     const book=p.book, mid=book.mid();
     if (!book.ready || mid==null) return render._msg(ctx,"En attente du carnet…");
     const padL=8, padR=8, padT=16, padB=16, iw=W-padL-padR, ih=H-padT-padB;
-    const win=mid*HEAT_PCT, lo=mid-win, hi=mid+win;
+    const win=mid*ui.heatPct, lo=mid-win, hi=mid+win;
     const X=v=>padL+iw*(v-lo)/(hi-lo);
     // cumuls : bids du mid vers la gauche, asks du mid vers la droite
-    const cum=(keys,map,isBid)=>{
-      const pts=[]; let c=0;
-      for (const k of keys){ const pr=+k;
-        if (isBid ? pr<lo : pr>hi) break;
-        c+=map.get(k); pts.push([pr,c]); }
-      return pts;
-    };
-    const bids=cum(book.bidKeys, book.bids, true), asks=cum(book.askKeys, book.asks, false);
+    // (carnet live + instantané profond au-delà de sa couverture)
+    const cum=lv=>{ const pts=[]; let c=0;
+      for (const [pr,q] of lv){ c+=q; pts.push([pr,c]); } return pts; };
+    const bids=cum(mergedLevels(p,"b",mid,win)), asks=cum(mergedLevels(p,"a",mid,win));
     const maxC=Math.max(bids.at(-1)?.[1]||0, asks.at(-1)?.[1]||0);
     if (!(maxC>0)) return render._msg(ctx,"En attente du carnet…");
     const Yq=c=>padT+ih*(1-c/maxC);
@@ -1640,7 +1696,7 @@ const render = {
     const mtxt=fmt(mid,dec), htxt=fmt(hi,dec);
     ctx.fillStyle="#F5A623"; ctx.fillText(mtxt, Math.min(Math.max(X(mid)-ctx.measureText(mtxt).width/2, padL), W-padR-ctx.measureText(mtxt).width), H-3);
     ctx.fillStyle="#8A93A6"; ctx.fillText(htxt, W-padR-ctx.measureText(htxt).width, H-3);
-    ctx.fillText(`cumul max ${fmt(maxC, book.qtyDec)} · ±${(HEAT_PCT*100).toLocaleString("fr-FR")} %`, padL, padT-5);
+    ctx.fillText(`cumul max ${fmt(maxC, book.qtyDec)} · ±${(ui.heatPct*100).toLocaleString("fr-FR")} %`, padL, padT-5);
   },
   tape(){
     const p=focused(), box=$("tape");
@@ -1761,10 +1817,13 @@ setInterval(()=>{ // échantillonnage de l'historique (1 s)
   for (const p of pairs){ const m=p.book.mid();
     if (p.book.ready && m!=null){ p.history.push([now,m]); mids[p.symbol]=m;
       if (p.history.length>HISTORY_MAX) p.history.shift();
-      p.heat.push({t:now, mid:m, b:bucketize(p.book,"b",m), a:bucketize(p.book,"a",m)});
+      p.heat.push({t:now, mid:m, b:bucketize(p,"b",m,ui.heatPct), a:bucketize(p,"a",m,ui.heatPct)});
       if (p.heat.length>HEAT_MAX) p.heat.shift();
       p.cvd.push([now, p.cvdVal]);
       if (p.cvd.length>HISTORY_MAX) p.cvd.shift(); } }
+  // fenêtre large : instantané profond de la paire au focus, rafraîchi ~30 s
+  const f=focused();
+  if (ui.heatPct>HEAT_PCT && f.book.ready && (!f.wide || now-f.wide.ts>30000)) fetchWideBook(f);
   checkWallAlerts();
   equitySamples.push({t:now, eq:paper.summary(mids).equity});
   if (equitySamples.length>HISTORY_MAX) equitySamples.shift();
@@ -1870,7 +1929,7 @@ $("wallalerts").addEventListener("change", e=>{
   await paper.load();
   loadPrefs(); loadAlerts();
   $("wallalerts").checked = ui.wallAlerts!==false;
-  buildTfRow(); buildIndRow();
+  buildTfRow(); buildIndRow(); buildHeatPcts();
   render.tabs(); render.alerts(); render.all(false);
   connectWS();
   loadKlines();
