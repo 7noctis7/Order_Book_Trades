@@ -246,6 +246,20 @@ en attente** sont tracés sur les bougies (filtre « Ordres »), et le rendu
 se met en pause quand l'onglet est caché — collecte, déclencheurs et
 alertes continuent de tourner.
 
+Le ticket est pensé pour installer les habitudes qui conditionnent la
+profitabilité : champ **risque par trade** (en % de l'equity) avec bouton
+**Taille auto** — la quantité est calculée à partir de la distance au stop
+loss — champs **TP/SL** qui posent à l'exécution un **bracket OCO** (vente
+limite + vente stop liées : la première exécutée annule l'autre, y compris
+sur les achats limite/stop déclenchés plus tard), et des garde-fous dans
+l'aperçu : entrée **sans stop** signalée, risque **> 2 % de l'equity**
+signalé, **R/R < 1** signalé, avertissement en cas de surtrading (> 5
+entrées en 30 min). Chaque position garde son stop d'entrée : la table des
+trades affiche le **multiple R** de chaque lot (réalisé et latent), le CSV
+l'exporte, et les statistiques ajoutent **espérance par trade, payoff
+(gain moyen / perte moyenne), R moyen, série en cours et PnL par paire** —
+les chiffres qui montrent où se joue réellement la profitabilité.
+
 Chaque horizon est accompagné d'un module d'**analyse & recommandation**
 volontairement compact : badge **ACHETER/LONG · VENDRE/SHORT · NEUTRE**,
 phrase de synthèse avec score, et objectifs — entrée, take profit calé sur

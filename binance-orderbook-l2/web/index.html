@@ -159,6 +159,9 @@ section{background:var(--panel);border:1px solid var(--line);border-radius:10px;
 .qtybox label{display:block;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-bottom:4px}
 .qtybox .row{display:flex;gap:6px}
 #qty{flex:1;min-width:90px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;color:var(--ink);font-family:var(--font-data);font-size:15px;padding:8px 10px}
+#tpin,#slin,#riskpct{flex:1;min-width:60px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;color:var(--ink);font-family:var(--font-data);font-size:13px;padding:7px 9px}
+.pctlab{align-self:center;font-size:11px;color:var(--faint);white-space:nowrap}
+#preview .warn{color:var(--amber)}
 .pct{padding:6px 8px;font-size:11px;color:var(--muted)}
 #exec{width:100%;padding:10px 22px;font-weight:700;font-size:14px;border:0;border-radius:8px;background:var(--amber);color:#221500}
 #exec:disabled{opacity:.4;cursor:not-allowed}
@@ -254,6 +257,21 @@ footer{padding:18px 16px 0;font-size:11px;color:var(--faint);line-height:1.6}
             <input id="oprice" inputmode="decimal" placeholder="prix" autocomplete="off" aria-label="Prix de déclenchement">
           </div>
         </div>
+        <div class="qtybox" id="bracketbox">
+          <label>Take profit / Stop loss — ordres liés (OCO) posés à l'exécution</label>
+          <div class="row">
+            <input id="tpin" inputmode="decimal" placeholder="TP (optionnel)" autocomplete="off" aria-label="Take profit">
+            <input id="slin" inputmode="decimal" placeholder="SL (optionnel)" autocomplete="off" aria-label="Stop loss">
+          </div>
+        </div>
+        <div class="qtybox" id="riskbox">
+          <label for="riskpct">Risque par trade — dimensionne la quantité via le SL</label>
+          <div class="row">
+            <input id="riskpct" inputmode="decimal" value="1" aria-label="Risque en pourcent" style="max-width:70px">
+            <span class="pctlab">% equity</span>
+            <button id="sizer" class="pct">Taille auto</button>
+          </div>
+        </div>
         <div class="qtybox">
           <label for="qty" id="qtylabel">Quantité</label>
           <div class="row">
@@ -341,7 +359,7 @@ footer{padding:18px 16px 0;font-size:11px;color:var(--faint);line-height:1.6}
       <thead><tr>
         <th></th><th>Actif</th><th>Achat</th><th>Vente</th>
         <th>Qté</th><th>P. achat</th><th>P. vente</th>
-        <th>PnL latent</th><th>latent %</th><th>PnL réalisé</th><th>réalisé %</th>
+        <th>PnL latent</th><th>latent %</th><th>PnL réalisé</th><th>réalisé %</th><th>R</th>
       </tr></thead>
       <tbody id="tradebody"></tbody>
     </table>
@@ -570,23 +588,30 @@ const paper = {
     const notional = f.price*f.qty, fee = f.fee;
     if (f.side==="BUY"){
       this.cash -= notional+fee;
-      (this.lots[f.symbol] ||= []).push({ts:f.ts, qty:f.qty, price:f.price, eff:(notional+fee)/f.qty});
+      (this.lots[f.symbol] ||= []).push({ts:f.ts, qty:f.qty, price:f.price, eff:(notional+fee)/f.qty,
+                                         stop:f.stop??null});
     } else {
       this.cash += notional-fee;
       const sellEff=(notional-fee)/f.qty; let rest=f.qty; const q=this.lots[f.symbol]||[];
       while (rest>1e-12 && q.length){
         const lot=q[0], take=Math.min(rest,lot.qty);
         this.closed.push({symbol:f.symbol, qty:take, buyTs:lot.ts, buyPrice:lot.price, buyEff:lot.eff,
-                          sellTs:f.ts, sellPrice:f.price, sellEff});
+                          buyStop:lot.stop??null, sellTs:f.ts, sellPrice:f.price, sellEff});
         lot.qty-=take; rest-=take; if (lot.qty<=1e-12) q.shift();
       }
     }
     if (persist) this.persist();
   },
+  // multiple R d'un lot clos : gain rapporté au risque initial (entrée − stop)
+  rMultiple(t){
+    if (!(t.buyStop>0) || t.buyStop>=t.buyEff) return null;
+    const r=(t.sellEff-t.buyEff)/(t.buyEff-t.buyStop);
+    return isFinite(r) ? r : null;
+  },
   posQty(sym){ return (this.lots[sym]||[]).reduce((s,l)=>s+l.qty,0); },
   posAvg(sym){ const q=this.lots[sym]||[]; const n=q.reduce((s,l)=>s+l.qty,0);
     return n>0 ? q.reduce((s,l)=>s+l.eff*l.qty,0)/n : null; },
-  order(sym, side, qty, book){
+  order(sym, side, qty, book, opts={}){
     if (!(qty>0)) throw "Quantité invalide";
     if (!book.ready) throw "Carnet non synchronisé";
     const w = book.walk(side, qty);
@@ -596,27 +621,41 @@ const paper = {
       throw `Cash insuffisant (coût ${fmt(notional+fee,2)} USDT)`;
     if (side==="SELL" && qty > this.posQty(sym)+1e-12)
       throw `Position insuffisante (${fmt(this.posQty(sym),6)} ${base(sym)} disponible — pas de vente à découvert)`;
-    const f={ts:Date.now(), symbol:sym, side, qty, price:w.avg, fee};
+    const f={ts:Date.now(), symbol:sym, side, qty, price:w.avg, fee, stop:opts.stop??null};
     this.replay(f);
     return {...f, notional, slippage:Math.abs(w.avg-w.best), levels:w.levels};
   },
-  placeOrder(sym, side, otype, qty, price){
+  placeOrder(sym, side, otype, qty, price, extra={}){
     if (!(qty>0)) throw "Quantité invalide";
     if (!(price>0)) throw "Prix de déclenchement invalide";
-    const o={id:this.nextId++, ts:Date.now(), symbol:sym, side, otype, qty, price};
+    const o={id:this.nextId++, ts:Date.now(), symbol:sym, side, otype, qty, price, ...extra};
     this.orders.push(o); this.persist();
     return o;
+  },
+  // bracket : à l'exécution d'un achat, pose TP (vente limite) et SL (vente stop)
+  // liés en OCO — quand l'un s'exécute, l'autre est annulé.
+  placeBracket(sym, qty, tp, sl){
+    if (!(tp>0) && !(sl>0)) return [];
+    const g="oco"+this.nextId, legs=[];
+    if (tp>0) legs.push(this.placeOrder(sym,"SELL","LIMIT",qty,tp,{oco:g}));
+    if (sl>0) legs.push(this.placeOrder(sym,"SELL","STOP",qty,sl,{oco:g}));
+    return legs;
+  },
+  cancelOco(group, exceptId){
+    for (const o of this.orders.filter(x=>x.oco===group && x.id!==exceptId)){
+      try { this.cancelOrder(o.id); } catch {}
+    }
   },
   cancelOrder(id){
     const i=this.orders.findIndex(o=>o.id===id);
     if (i<0) throw "Ordre introuvable";
     const [o]=this.orders.splice(i,1); this.persist(); return o;
   },
-  executeAt(sym, side, qty, price){   // exécution au prix limite (maker)
+  executeAt(sym, side, qty, price, opts={}){   // exécution au prix limite (maker)
     const notional=price*qty, fee=notional*FEE;
     if (side==="BUY" && notional+fee > this.cash+1e-9) throw "Cash insuffisant au déclenchement";
     if (side==="SELL" && qty > this.posQty(sym)+1e-12) throw "Position insuffisante";
-    const f={ts:Date.now(), symbol:sym, side, qty, price, fee};
+    const f={ts:Date.now(), symbol:sym, side, qty, price, fee, stop:opts.stop??null};
     this.replay(f);
     return {...f, notional, slippage:0, levels:0};
   },
@@ -643,9 +682,12 @@ const paper = {
         qty=Math.min(qty, avail);
       }
       try {
-        const report = o.otype==="LIMIT" ? this.executeAt(sym, o.side, qty, p)
-                                         : this.order(sym, o.side, qty, book);
+        const opts = o.side==="BUY" ? {stop:o.sl??null} : {};
+        const report = o.otype==="LIMIT" ? this.executeAt(sym, o.side, qty, p, opts)
+                                         : this.order(sym, o.side, qty, book, opts);
         this.cancelOrder(o.id);
+        if (o.oco) this.cancelOco(o.oco, o.id);                        // l'autre jambe du bracket tombe
+        if (o.side==="BUY" && (o.tp>0 || o.sl>0)) this.placeBracket(sym, report.qty, o.tp, o.sl);
         events.push({order:o, report, reason:null});
       } catch(e){
         this.cancelOrder(o.id);
@@ -1500,6 +1542,8 @@ const render = {
     const p=focused(), b=p.book, otype=$("otype").value;
     $("qtylabel").textContent=`Quantité (${base(p.symbol)})`;
     $("oprice").style.display = otype==="MARKET" ? "none" : "block";
+    $("bracketbox").style.display = side==="BUY" ? "block" : "none";
+    $("riskbox").style.display = side==="BUY" ? "block" : "none";
     const btn=$("exec");
     btn.textContent = otype==="MARKET" ? (side==="BUY"?"Acheter":"Vendre")
                                        : (otype==="LIMIT"?"Poser la limite":"Poser le stop");
@@ -1510,11 +1554,27 @@ const render = {
     const pv=$("preview");
     if (!b.ready){ pv.textContent="En attente de synchronisation du carnet…"; btn.disabled=true; return; }
     if (!(qty>0)){ pv.textContent=""; btn.disabled=true; return; }
+    // discipline : risque défini par le SL, rapporté à l'equity, R/R vs TP
+    const risk=(entry)=>{
+      if (side!=="BUY") return "";
+      const tp=parseFloat(($("tpin").value||"").replace(",","."));
+      const sl=parseFloat(($("slin").value||"").replace(",","."));
+      if (!(sl>0) || !(entry>0)) return ` · <span class="warn">sans SL — risque non défini</span>`;
+      if (sl>=entry) return ` · <span class="down">SL au-dessus de l'entrée</span>`;
+      const mids={}; pairs.forEach(x=>{ const m=x.book.mid(); if (m!=null) mids[x.symbol]=m; });
+      const eq=paper.summary(mids).equity;
+      const riskU=qty*(entry-sl), pctEq=eq>0 ? riskU/eq*100 : 0;
+      let out=` · risque <b>${fmt(riskU,2)} USDT</b> (${fmt(pctEq,2)} % equity)`;
+      if (pctEq>2) out+=` <span class="warn">— au-delà des 2 % usuels</span>`;
+      if (tp>0){ const rr=(tp-entry)/(entry-sl);
+        out+=` · R/R <b>${rr.toFixed(2)}</b>${rr<1?` <span class="warn">— défavorable</span>`:""}`; }
+      return out;
+    };
     if (otype==="MARKET"){
       const w=b.walk(side,qty);
       if (!w){ pv.innerHTML=`<span class="down">Liquidité insuffisante dans le carnet pour cette quantité.</span>`; btn.disabled=true; return; }
       const notional=w.avg*qty, fee=notional*FEE;
-      pv.innerHTML=`prix moyen estimé <b>${fmt(w.avg,b.priceDec)}</b> · slippage <b>${fmt(Math.abs(w.avg-w.best),b.priceDec)}</b> (${w.levels} niveaux) · montant <b>${fmt(notional,2)} USDT</b> · frais <b>${fmt(fee,2)}</b>`;
+      pv.innerHTML=`prix moyen estimé <b>${fmt(w.avg,b.priceDec)}</b> · slippage <b>${fmt(Math.abs(w.avg-w.best),b.priceDec)}</b> (${w.levels} niveaux) · montant <b>${fmt(notional,2)} USDT</b> · frais <b>${fmt(fee,2)}</b>${risk(w.avg)}`;
       btn.disabled=false; return;
     }
     if (!(price>0)){ pv.textContent="Indiquer le prix de déclenchement."; btn.disabled=true; return; }
@@ -1526,7 +1586,7 @@ const render = {
                       : "stop-loss : ordre au marché déclenché quand le prix retombe à ");
     const warn = otype==="LIMIT" && ((side==="BUY" && price>=b.bestAsk()) || (side==="SELL" && price<=b.bestBid()))
       ? ` <span class="down">(déclenchement immédiat : limite du mauvais côté du marché)</span>` : "";
-    pv.innerHTML=`${rule}<b>${fmt(price,b.priceDec)}</b> · mid actuel <b>${fmt(mid,b.priceDec)}</b> · ≈ <b>${fmt(price*qty,2)} USDT</b>${warn}`;
+    pv.innerHTML=`${rule}<b>${fmt(price,b.priceDec)}</b> · mid actuel <b>${fmt(mid,b.priceDec)}</b> · ≈ <b>${fmt(price*qty,2)} USDT</b>${warn}${risk(price)}`;
     btn.disabled=false;
   },
   orders(){
@@ -1537,9 +1597,11 @@ const render = {
       const dec = bySym[o.symbol]?.book.priceDec ?? 4;
       const sideTxt = o.side==="BUY" ? `<span class="up">achat</span>` : `<span class="down">vente</span>`;
       const typeTxt = o.otype==="LIMIT" ? "limite" : "stop";
+      const bracket=(o.tp>0||o.sl>0) ? ` <span class="muted">bracket TP ${o.tp>0?fmt(o.tp,dec):"—"} / SL ${o.sl>0?fmt(o.sl,dec):"—"}</span>` : "";
+      const oco=o.oco ? ` <span style="color:var(--amber);font-size:10px;letter-spacing:.08em">OCO</span>` : "";
       return `<div class="order-row"><span class="oid">#${o.id}</span>`+
              `<b>${base(o.symbol)}</b> ${sideTxt} <span>${typeTxt}</span>`+
-             `<span>${fmt(o.qty,6)} @ ${fmt(o.price,dec)}</span>`+
+             `<span>${fmt(o.qty,6)} @ ${fmt(o.price,dec)}</span>${bracket}${oco}`+
              `<span class="muted">${fdate(o.ts)}</span>`+
              `<button class="cancel" data-id="${o.id}">Annuler</button></div>`;
     }).join("");
@@ -1557,13 +1619,31 @@ const render = {
     for (const {eq} of equitySamples){ peak=Math.max(peak,eq); const d=peak-eq;
       if (d>dd){ dd=d; ddPct=peak>0? d/peak*100 : 0; } }
     const pf = gl>0 ? (gp/gl).toFixed(2) : (gp>0?"∞":"—");
+    // espérance, payoff, R moyen, série en cours, répartition par paire :
+    // les chiffres qui montrent OÙ se joue la profitabilité
+    const expU = closed.length ? pnls.reduce((s,v)=>s+v,0)/closed.length : null;
+    const avgW = wins.length ? gp/wins.length : 0, avgL = losses.length ? gl/losses.length : 0;
+    const payoff = avgL>0 ? (avgW/avgL).toFixed(2) : (avgW>0?"∞":"—");
+    const rvals = closed.map(t=>paper.rMultiple(t)).filter(v=>v!=null);
+    const avgR = rvals.length ? rvals.reduce((s,v)=>s+v,0)/rvals.length : null;
+    let streak=0, sgn=0;
+    for (let i=pnls.length-1;i>=0;i--){ const s=pnls[i]>=0?1:-1; if (!sgn) sgn=s; if (s===sgn) streak++; else break; }
+    const byPair={};
+    for (const t of closed) byPair[t.symbol]=(byPair[t.symbol]||0)+(t.sellEff-t.buyEff)*t.qty;
+    const pairsTxt=Object.entries(byPair).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).slice(0,4)
+      .map(([s,v])=>`${base(s)} <b class="${v>=0?"up":"down"}">${v>=0?"+":""}${fmt(v,2)}</b>`).join(" · ");
     $("statsrow").innerHTML =
       `<span>trades clôturés <b>${closed.length}</b></span>`+
       `<span>gagnants <b class="up">${wins.length}</b>${closed.length?` (${(wins.length/closed.length*100).toFixed(0)} %)`:""}</span>`+
       `<span>perdants <b class="down">${losses.length}</b></span>`+
       `<span>profit factor <b>${pf}</b></span>`+
+      `<span>espérance/trade <b class="${expU>=0?"up":"down"}">${expU==null?"—":(expU>=0?"+":"")+fmt(expU,2)}</b></span>`+
+      `<span>payoff (gain moy./perte moy.) <b>${payoff}</b></span>`+
+      `<span>R moyen <b class="${avgR>=0?"up":"down"}">${avgR==null?"—":(avgR>=0?"+":"")+avgR.toFixed(2)}</b> (${rvals.length} avec stop)</span>`+
+      `<span>série <b class="${sgn>=0?"up":"down"}">${closed.length?(sgn>0?"+":"−")+streak:"—"}</b></span>`+
       `<span>max drawdown <b class="down">-${fmt(dd,2)} (-${ddPct.toFixed(2)} %)</b></span>`+
-      `<span>frais cumulés <b>${fmt(paper.fills.reduce((s,f)=>s+f.fee,0),2)}</b></span>`;
+      `<span>frais cumulés <b>${fmt(paper.fills.reduce((s,f)=>s+f.fee,0),2)}</b></span>`+
+      (pairsTxt?`<span class="sub" style="flex-basis:100%;color:var(--faint)">par paire — ${pairsTxt}</span>`:"");
   },
   folio(){
     const mids={}; pairs.forEach(p=>{ const m=p.book.mid(); if(m!=null) mids[p.symbol]=m; });
@@ -1581,6 +1661,7 @@ const render = {
     const rows=[];
     for (const t of paper.closed){
       const pnlv=(t.sellEff-t.buyEff)*t.qty, pct=(t.sellEff-t.buyEff)/t.buyEff*100;
+      const r=paper.rMultiple(t);
       rows.push({ts:t.sellTs, html:`<tr>
         <td><span class="st">clos</span></td><td>${base(t.symbol)}</td>
         <td>${fdate(t.buyTs)}</td><td>${fdate(t.sellTs)}</td>
@@ -1588,11 +1669,13 @@ const render = {
         <td>${fmt(t.sellPrice, bySym[t.symbol].book.priceDec||4)}</td>
         <td class="muted">—</td><td class="muted">—</td>
         <td class="${pnlv>=0?"up":"down"}">${pnlv>=0?"+":""}${fmt(pnlv,2)}</td>
-        <td class="${pnlv>=0?"up":"down"}">${pnlv>=0?"+":""}${fmt(pct,2)} %</td></tr>`});
+        <td class="${pnlv>=0?"up":"down"}">${pnlv>=0?"+":""}${fmt(pct,2)} %</td>
+        <td class="${r==null?"muted":r>=0?"up":"down"}">${r==null?"—":(r>=0?"+":"")+r.toFixed(2)}</td></tr>`});
     }
     for (const [sym,q] of Object.entries(paper.lots)) for (const lot of q){
       const m=mid(sym), has=m!=null;
       const pnlv=has?(m-lot.eff)*lot.qty:null, pct=has?(m-lot.eff)/lot.eff*100:null;
+      const rl=has && lot.stop>0 && lot.stop<lot.eff ? (m-lot.eff)/(lot.eff-lot.stop) : null;
       rows.push({ts:lot.ts, html:`<tr>
         <td><span class="st open">ouvert</span></td><td>${base(sym)}</td>
         <td>${fdate(lot.ts)}</td><td class="muted">—</td>
@@ -1600,7 +1683,8 @@ const render = {
         <td class="muted">—</td>
         <td class="${pnlv>=0?"up":"down"}">${has?(pnlv>=0?"+":"")+fmt(pnlv,2):"—"}</td>
         <td class="${pnlv>=0?"up":"down"}">${has?(pct>=0?"+":"")+fmt(pct,2)+" %":"—"}</td>
-        <td class="muted">—</td><td class="muted">—</td></tr>`});
+        <td class="muted">—</td><td class="muted">—</td>
+        <td class="${rl==null?"muted":rl>=0?"up":"down"}">${rl==null?"—":(rl>=0?"+":"")+rl.toFixed(2)}</td></tr>`});
     }
     rows.sort((a,b)=>b.ts-a.ts);
     $("tradebody").innerHTML=rows.map(r=>r.html).join("");
@@ -1761,30 +1845,67 @@ document.querySelectorAll(".pct").forEach(b=>b.onclick=()=>{
 $("exec").onclick=()=>{
   const p=focused(), qty=parseFloat(($("qty").value||"").replace(",","."));
   const otype=$("otype").value, price=parseFloat(($("oprice").value||"").replace(",","."));
+  const tp=side==="BUY" ? parseFloat(($("tpin").value||"").replace(",",".")) : NaN;
+  const sl=side==="BUY" ? parseFloat(($("slin").value||"").replace(",",".")) : NaN;
   try {
     if (otype==="MARKET"){
-      const r=paper.order(p.symbol, side, qty, p.book);
+      const r=paper.order(p.symbol, side, qty, p.book, side==="BUY" ? {stop: sl>0?sl:null} : {});
       toast(`${side==="BUY"?"Acheté":"Vendu"} ${fmt(r.qty,6)} ${base(p.symbol)} @ ${fmt(r.price,p.book.priceDec)} · ${fmt(r.notional,2)} USDT · frais ${fmt(r.fee,2)} · slippage ${fmt(r.slippage,p.book.priceDec)}`);
+      if (side==="BUY" && (tp>0 || sl>0)){
+        const legs=paper.placeBracket(p.symbol, r.qty, tp, sl);
+        if (legs.length) toast(`Bracket posé : ${legs.map(o=>`#${o.id} ${o.otype==="LIMIT"?"TP":"SL"} @ ${fmt(o.price,p.book.priceDec)}`).join(" · ")} (OCO)`);
+      }
     } else {
-      const o=paper.placeOrder(p.symbol, side, otype, qty, price);
-      toast(`Ordre ${otype==="LIMIT"?"limite":"stop"} #${o.id} posé : ${side==="BUY"?"achat":"vente"} ${fmt(qty,6)} ${base(p.symbol)} @ ${fmt(price,p.book.priceDec)}`);
+      const extra = side==="BUY" ? {tp: tp>0?tp:null, sl: sl>0?sl:null} : {};
+      const o=paper.placeOrder(p.symbol, side, otype, qty, price, extra);
+      toast(`Ordre ${otype==="LIMIT"?"limite":"stop"} #${o.id} posé : ${side==="BUY"?"achat":"vente"} ${fmt(qty,6)} ${base(p.symbol)} @ ${fmt(price,p.book.priceDec)}${extra.tp||extra.sl?" — bracket à l'exécution":""}`);
       $("oprice").value="";
     }
-    $("qty").value="";
+    $("qty").value=""; $("tpin").value=""; $("slin").value="";
+    // garde-fou surtrading : plus de 5 entrées sur 30 min
+    const cut=Date.now()-1800000;
+    const entries=paper.fills.filter(f=>f.side==="BUY" && f.ts>=cut).length;
+    if (entries>5 && Date.now()-lastOvertradeWarn>1800000){
+      lastOvertradeWarn=Date.now();
+      toast(`${entries} entrées en 30 min — surtrading ? Les frais et le bruit mangent l'espérance.`, true);
+    }
     render.all(false);
   } catch(e){ toast(String(e), true); }
 };
+let lastOvertradeWarn=0;
+$("tpin").addEventListener("input", render.ticket);
+$("slin").addEventListener("input", render.ticket);
+$("sizer").onclick=()=>{
+  const p=focused(), b=p.book;
+  if (side!=="BUY") return toast("Taille auto : pour une entrée à l'achat (spot)", true);
+  const riskPct=parseFloat(($("riskpct").value||"").replace(",","."))||1;
+  const sl=parseFloat(($("slin").value||"").replace(",","."));
+  const otype=$("otype").value;
+  const entry=otype==="MARKET" ? b.bestAsk() : parseFloat(($("oprice").value||"").replace(",","."));
+  if (!(entry>0)) return toast("Renseigner le prix d'entrée (ou attendre le carnet)", true);
+  if (!(sl>0) || sl>=entry) return toast("Renseigner un SL sous le prix d'entrée pour dimensionner", true);
+  const mids={}; pairs.forEach(x=>{ const m=x.book.mid(); if (m!=null) mids[x.symbol]=m; });
+  const eq=paper.summary(mids).equity;
+  const q=eq*(riskPct/100)/(entry-sl);
+  $("qty").value = q>0 ? q.toPrecision(6) : "";
+  render.ticket();
+  toast(`Taille pour risquer ${fmt(riskPct,2)} % de ${fmt(eq,0)} USDT : ${q.toPrecision(6)} ${base(p.symbol)}`);
+};
 $("csvbtn").onclick=()=>{
   const dt=ms=>new Date(ms).toISOString().replace("T"," ").slice(0,19);
-  const rows=[["statut","symbole","date_achat","date_vente","quantite","prix_achat","prix_vente","pnl_usdt","pnl_pct"]];
-  for (const t of paper.closed)
+  const rows=[["statut","symbole","date_achat","date_vente","quantite","prix_achat","prix_vente","pnl_usdt","pnl_pct","stop_entree","r_multiple"]];
+  for (const t of paper.closed){
+    const r=paper.rMultiple(t);
     rows.push(["clos", t.symbol, dt(t.buyTs), dt(t.sellTs), t.qty, t.buyPrice, t.sellPrice,
-               ((t.sellEff-t.buyEff)*t.qty).toFixed(8), ((t.sellEff-t.buyEff)/t.buyEff*100).toFixed(4)]);
+               ((t.sellEff-t.buyEff)*t.qty).toFixed(8), ((t.sellEff-t.buyEff)/t.buyEff*100).toFixed(4),
+               t.buyStop??"", r!=null?r.toFixed(4):""]);
+  }
   const mids={}; pairs.forEach(p=>{ const m=p.book.mid(); if (m!=null) mids[p.symbol]=m; });
   for (const [sym,q] of Object.entries(paper.lots)) for (const lot of q){
     const m=mids[sym];
     rows.push(["ouvert", sym, dt(lot.ts), "", lot.qty, lot.price, "",
-               m!=null?((m-lot.eff)*lot.qty).toFixed(8):"", m!=null?((m-lot.eff)/lot.eff*100).toFixed(4):""]);
+               m!=null?((m-lot.eff)*lot.qty).toFixed(8):"", m!=null?((m-lot.eff)/lot.eff*100).toFixed(4):"",
+               lot.stop??"", ""]);
   }
   const csv=rows.map(r=>r.join(",")).join("\n");
   const a=document.createElement("a");
