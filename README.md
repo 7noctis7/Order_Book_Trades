@@ -206,10 +206,14 @@ RSI, murs, TP/SL) ; horizon, paire, filtres et hauteurs de panneaux sont
 
 La **carte de liquidité** type Bookmap est agrégée en grille temps × prix :
 le carnet est ramené chaque seconde à des paliers de prix sur une fenêtre
-de **mid ± 0,35 %** (indispensable sur les paires denses : les premiers
-niveaux de BTC ne couvrent que quelques dollars et s'écraseraient au mid),
-avec une échelle au 95ᵉ percentile — les murs saturent en pleine couleur
-sans écraser la liquidité ordinaire. Le plus gros mur de chaque côté est
+**sélectionnable — ± 0,35 % · ± 1 % · ± 2 % · ± 5 % · ± 10 %** autour du
+mid (la profondeur cumulée suit la même fenêtre). Près du prix, les
+données viennent du carnet temps réel ; au-delà de sa couverture, elles
+sont complétées par l'**instantané REST profond de Binance (5000
+niveaux/côté, rafraîchi ~30 s)** — la couverture réelle du carnet est
+affichée dans l'en-tête, car au-delà de ce que Binance publie il n'existe
+pas de données. Échelle au 95ᵉ percentile — les murs saturent en pleine
+couleur sans écraser la liquidité ordinaire. Le plus gros mur de chaque côté est
 étiqueté directement sur la carte — **ZONE LONG · support** (bids) et
 **ZONE SHORT · résistance** (asks) — et le survol affiche heure, prix et
 quantité posée de chaque case. Le corps de la carte est mis en cache et
