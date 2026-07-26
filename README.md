@@ -216,17 +216,31 @@ quantité posée de chaque case. Le corps de la carte est mis en cache et
 n'est redessiné qu'à l'arrivée d'un échantillon : survol et
 rafraîchissements restent fluides.
 
-La colonne de gauche complète le tableau : **profondeur cumulée** (courbe
-en escalier bids/asks sur la même fenêtre ± 0,35 %, mid en pointillé),
-**bande des transactions** en direct (25 derniers trades colorés par
-agressivité — vert = acheteur au marché, rouge = vendeur — avec part
-acheteuse et delta de volume sur 60 s) et **alertes de prix** : saisir un
-prix pour la paire au focus, l'alerte se déclenche au franchissement
-(toast + notification navigateur si autorisée), même onglet en
-arrière-plan. Les **ordres fictifs en attente** sont aussi tracés sur le
-graphique en bougies (lignes or, filtre « Ordres »), et le rendu se met en
-pause quand l'onglet est caché — la collecte de données, les déclencheurs
-d'ordres et les alertes continuent, eux, de tourner.
+L'agencement suit le geste de trading : la colonne de gauche enchaîne
+**carnet → ticket d'ordre → profondeur cumulée → transactions/alertes** —
+et **cliquer un prix du carnet préremplit un ordre limite** à ce niveau
+(le curseur passe directement à la quantité). La colonne de droite déroule
+le contexte : bougies, carte de liquidité, puis la synthèse
+Analyse & recommandation.
+
+Sous la carte de liquidité, une bande **CVD de session** (delta cumulé
+achats − ventes au marché, même axe temporel que la carte) montre qui
+domine le flux ; le CVD entre aussi dans le score de la recommandation
+(±0,5 si le delta sur 60 s dépasse 15 % du volume échangé). La
+**profondeur cumulée** (courbe en escalier bids/asks sur la même fenêtre
+± 0,35 %) et la **bande des transactions** (25 derniers trades colorés par
+agressivité, part acheteuse et delta 60 s) complètent la lecture d'order
+flow.
+
+Deux types d'**alertes**, persistées et évaluées même onglet caché :
+alertes de **prix** (saisir un prix, sens déduit, toast + notification
+navigateur au franchissement) et alertes automatiques d'**apparition de
+mur** — dès qu'un mur ≥ 8× le palier moyen apparaît sur n'importe quelle
+paire suivie (anti-spam : détection d'apparition réelle + 3 min de silence
+par paire/côté ; désactivable d'une case à cocher). Les **ordres fictifs
+en attente** sont tracés sur les bougies (filtre « Ordres »), et le rendu
+se met en pause quand l'onglet est caché — collecte, déclencheurs et
+alertes continuent de tourner.
 
 Chaque horizon est accompagné d'un module d'**analyse & recommandation**
 volontairement compact : badge **ACHETER/LONG · VENDRE/SHORT · NEUTRE**,
