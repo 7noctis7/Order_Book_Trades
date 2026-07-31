@@ -204,6 +204,19 @@ d'afficher ou masquer chaque indicateur individuellement (EMA ×5, volume,
 RSI, murs, TP/SL) ; horizon, paire, filtres et hauteurs de panneaux sont
 **mémorisés localement** d'une visite à l'autre.
 
+La carte propose aussi des **vues durée façon Coinglass** — `LIVE · 1h ·
+4h · J · S · M` : l'historique du carnet est enregistré localement en
+colonnes agrégées (max par palier — les murs persistent) pendant que
+l'app tourne, et **persiste dans le navigateur pour J/S/M** : la carte
+s'enrichit au fil des sessions. Les **bougies de prix sont superposées à
+la carte** (intervalle adapté à la durée : 1m → 4h), elles, disponibles
+sur toute la durée dès l'ouverture. Palette **viridis** (violet →
+sarcelle → jaune, fond violet profond, barre d'échelle 0 → p95) par
+défaut, bascule possible vers la palette bid/ask verte/rouge. Nuance
+honnête : Coinglass cartographie des liquidations estimées de contrats
+perpétuels (donnée propriétaire) ; ici, c'est la **liquidité réellement
+posée au carnet spot** — même lecture, donnée différente.
+
 La **carte de liquidité** type Bookmap est agrégée en grille temps × prix :
 le carnet est ramené chaque seconde à des paliers de prix sur une fenêtre
 **sélectionnable — ± 0,35 % · ± 1 % · ± 2 % · ± 5 % · ± 10 %** autour du
